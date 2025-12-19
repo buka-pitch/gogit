@@ -103,15 +103,15 @@ impl GitRepo {
              if stderr.contains("no upstream branch") {
                  let current_branch = self.get_current_branch()?;
                  println!("Tip: Setting upstream for branch '{}'...", current_branch);
-                 let output_retry = Command::new("git")
+                 let status_retry = Command::new("git")
                     .arg("push")
                     .arg("--set-upstream")
                     .arg("origin")
                     .arg(&current_branch)
-                    .output()?;
+                    .status()?;
                 
-                if !output_retry.status.success() {
-                     return Err(GitError::Cmd(String::from_utf8_lossy(&output_retry.stderr).to_string()));
+                if !status_retry.success() {
+                     return Err(GitError::Cmd("Failed to push cleanup upstream".to_string()));
                 }
              } else {
                  return Err(GitError::Cmd(stderr.to_string()));
