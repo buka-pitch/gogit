@@ -33,6 +33,12 @@ gogit is a command-line interface tool that integrates AI capabilities into your
 
 2. **Installation:**
    The recommended way to install `gogit` is using our installer script:
+   
+  **Build from Source:**
+    git clone https://github.com/buka-pitch/gogit.git
+    cd gogit
+    cargo build --release
+    The compiled binary will be located at `target/release/gogit`. You can then move this binary to your system's PATH for easy access.
 
    ```bash
    chmod +x install.sh
@@ -57,7 +63,6 @@ gogit is a command-line interface tool that integrates AI capabilities into your
 ## Usage
 
 The `gogit` CLI offers several commands to integrate AI into your Git workflow.
-<img src="video.webm" width="100%" alt="gogit Usage"> object-fit="cover"/>
 
 ### 1. Commit Generation
 
@@ -190,20 +195,3 @@ model = "gemini-2.5-flash-lite" # Or your preferred model
 commit_prompt = "Generate a concise commit message summarizing these changes."
 pr_prompt = "Create a detailed PR description highlighting the problem, solution, and any potential impacts."
 ```
-
-## 🗺️ Roadmap & Community
-
-We're building the future of Git workflows together! Here are some things we're looking to implement:
-
-- Support for more AI providers (Claude, GPT-4, Llama).
-- Rich interactive TUI for conflict resolution.
-- Performance optimizations for large monorepos.
-- More project-specific context (e.g., analyzing `package.json`, `requirements.txt`).
-
-### 🤝 Contributing
-
-Want to help build gogit? Check out our [CONTRIBUTING.md](file:///home/syco/projects/gogit/CONTRIBUTING.md) to get started. Look for **good first issue** labels on our GitHub repository!
-
-## License
-
-This project is licensed under the MIT License.
