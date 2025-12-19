@@ -135,7 +135,10 @@ async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
     let github = github::GitHub::new().ok();
 
     match command {
-        Commands::Commit { .. } => handle_commit(&repo, &ai, &tui, &config).await?,
+        Commands::Commit { args } => {
+            let hook_args = if args.is_empty() { None } else { Some(args) };
+            handle_commit(&repo, &ai, &tui, &config, hook_args).await?;
+        },
         Commands::Pr { base } => handle_pr(&repo, &ai, &tui, &config, github.as_ref(), &base).await?,
         Commands::Review => review::Reviewer::run(&tui, &ai, &repo).await?,
         Commands::Hook { action } => match action {
@@ -151,20 +154,32 @@ async fn handle_commit(
     ai: &ai::GeminiClient,
     tui: &tui::Tui,
     config: &config::Config,
+    hook_args: Option<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut diff = repo.get_staged_diff()?;
     
-    // Interactive Staging
-    if diff.trim().is_empty() {
-        println!("No staged changes.");
-        let unstaged = repo.get_unstaged_files()?;
-        if !unstaged.is_empty() {
-             let selected = tui.prompt_multiselect(&unstaged, "Select files to stage:")?;
-             if !selected.is_empty() {
-                 repo.stage_files(&selected)?;
-                 diff = repo.get_staged_diff()?; // refresh
-             }
+    // Interactive Staging (Skip in Hook Mode to avoid locking issues if git is holding index)
+    // Actually, prepare-commit-msg runs after index is locked for commit?
+    // Usually it's safe to read, but modifying index might be tricky.
+    // Let's allow staging in Standalone mode only.
+    if hook_args.is_none() {
+        if diff.trim().is_empty() {
+            println!("No staged changes.");
+            let unstaged = repo.get_unstaged_files()?;
+            if !unstaged.is_empty() {
+                 let selected = tui.prompt_multiselect(&unstaged, "Select files to stage:")?;
+                 if !selected.is_empty() {
+                     repo.stage_files(&selected)?;
+                     diff = repo.get_staged_diff()?; // refresh
+                 }
+            }
         }
+    } else {
+         // In hook mode, if diff is empty, we must abort or user sees nothing?
+         // Git usually prevents commit if empty, unless --allow-empty.
+         if diff.trim().is_empty() {
+             // For now, let's assume git handles the empty check, or we just generate nothing.
+         }
     }
     
     if diff.trim().is_empty() {
@@ -188,11 +203,6 @@ async fn handle_commit(
         let spinner = tui.start_thinking("Generating commit message...");
         
         let mut full_msg = String::new();
-        // We need to stop spinner before streaming output
-        // But we want to wait for the first token? 
-        // Actually, stream_completion returns the stream *after* the request starts.
-        // Let's stop the spinner once we have the stream object, or better, keep it simple.
-        
         let stream_result = ai.stream_completion(&prompt, system_prompt).await;
         tui.stop_spinner(spinner); // API connected
         
@@ -219,20 +229,41 @@ async fn handle_commit(
         
         match tui.prompt_review(&full_msg)? {
             tui::Action::Confirm(final_msg) => {
-                let spinner = tui.start_thinking("Committing & Pushing...");
-                repo.commit(&final_msg)?;
-                repo.push()?;
-                tui.stop_spinner(spinner);
-                println!("{}", "\n✔ Success! Code shipped.".green().bold());
+                if let Some(args) = &hook_args {
+                    // Hook Mode: Write to file
+                    if let Some(filepath) = args.get(0) {
+                        std::fs::write(filepath, final_msg)?;
+                        println!("{}", "\n✔ Message saved. Git will now commit.".green().bold());
+                    } else {
+                        eprintln!("Error: Hook called but no argument provided for message file.");
+                    }
+                    // Hook Mode does NOT push automatically, as that would happen inside the commit command? 
+                    // No, push happens after. 
+                    // If user wants to push, they should run 'git push' after 'git commit'.
+                } else {
+                    // Standalone Mode: Commit & Push
+                    let spinner = tui.start_thinking("Committing & Pushing...");
+                    repo.commit(&final_msg)?;
+                    repo.push()?;
+                    tui.stop_spinner(spinner);
+                    println!("{}", "\n✔ Success! Code shipped.".green().bold());
+                }
                 break;
             }
             tui::Action::Edit => {
                 let edited = tui.open_editor(&full_msg)?;
-                let spinner = tui.start_thinking("Committing & Pushing...");
-                repo.commit(&edited)?;
-                repo.push()?;
-                tui.stop_spinner(spinner);
-                println!("{}", "\n✔ Success! Code shipped.".green().bold());
+                if let Some(args) = &hook_args {
+                     if let Some(filepath) = args.get(0) {
+                        std::fs::write(filepath, edited)?;
+                         println!("{}", "\n✔ Message saved. Git will now commit.".green().bold());
+                    }
+                } else {
+                    let spinner = tui.start_thinking("Committing & Pushing...");
+                    repo.commit(&edited)?;
+                    repo.push()?;
+                    tui.stop_spinner(spinner);
+                    println!("{}", "\n✔ Success! Code shipped.".green().bold());
+                }
                 break;
             }
             tui::Action::Regenerate => {
@@ -241,6 +272,11 @@ async fn handle_commit(
             }
             tui::Action::Reject => {
                 println!("{}", "\nAborted.".red());
+                // In hook mode, if we exit 1, git ignores the hook or aborts? 
+                // prepare-commit-msg exit code > 0 aborts commit? Yes.
+                if hook_args.is_some() {
+                    process::exit(1);
+                }
                 break;
             }
         }
