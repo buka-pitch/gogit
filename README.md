@@ -64,7 +64,7 @@ gogit is a command-line interface tool that integrates AI capabilities into your
 
 The `gogit` CLI offers several commands to integrate AI into your Git workflow.
 
-<video src="./video.webm" controls="controls" style="max-width: 100%;">
+<video src="./video.wp4" controls="controls" style="max-width: 100%;">
   Your browser does not support the video tag.
 </video>
 
