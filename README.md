@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="img1.png" width="150" alt="gogit Logo">
+  <img src="img1.png" width="150" alt="gogit Logo" object-fit="cover">
 </p>
 
 # gogit CLI
-<!-- 
+
 <p align="center">
-  <img src="img.png" width="100%" alt="gogit Cover">
-</p> -->
+  <img src="img.png" width="100%" alt="gogit Cover" object-fit="cover">
+</p>
 
 gogit is a command-line interface tool that integrates AI capabilities into your Git workflow, enhancing productivity and code quality. It leverages AI to generate commit messages, draft pull request descriptions, review code for potential issues, refactor code, and semantically search your Git history.
 
