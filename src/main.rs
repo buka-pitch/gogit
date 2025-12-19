@@ -3,6 +3,8 @@ mod ai;
 mod tui;
 mod config;
 mod github;
+mod review;
+mod hook;
 
 use clap::{Parser, Subcommand};
 use crossterm::style::Stylize;
@@ -12,7 +14,7 @@ use tokio;
 
 #[derive(Parser)]
 #[command(name = "gogit")]
-#[command(about = "High-performance Git automation with AI", long_about = None)]
+#[command(about = "AI-powered Git CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -21,42 +23,126 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Generate a commit message for staged changes
-    Commit,
+    Commit {
+        /// (Hidden) Arguments passed by git hook (commit_msg_file, source, sha1)
+        #[arg(hide = true)]
+        args: Vec<String>,
+    },
     /// Generate a PR description
     Pr {
         /// Base branch to compare against (default: main)
-        #[arg(short, long, default_value = "main")]
+        #[arg(long, default_value = "main")]
         base: String,
     },
+    /// Review code changes
+    Review,
+    /// Manage git hooks
+    Hook {
+        #[command(subcommand)]
+        action: HookAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum HookAction {
+    /// Install the Git hook
+    Install,
+    /// Uninstall the Git hook
+    Uninstall,
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    
+    // Load .env
     let _ = dotenvy::dotenv();
 
-    if let Err(e) = run(cli).await {
-        eprintln!("Error: {}", e);
+    // Check for "interactive mode" (no args)
+    if let None = cli.command {
+        show_main_menu().await;
+        return;
+    }
+
+    if let Err(e) = run(cli.command.unwrap()).await {
+        eprintln!("\n{} {}", "✖ Error:".red().bold(), e);
         process::exit(1);
     }
 }
 
-async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+async fn show_main_menu() {
+    let tui = tui::Tui::new();
+    
+    // Clear screen
+    print!("\x1B[2J\x1B[1;1H");
+    
+    // BIG ASCII Art Logo (Centered)
+    println!("{}", r#"
+      ____  ____  ____  ___ ____ 
+     / ___|/ _ \| ___||_ _|_   _|
+    | |  _| | | | |  _ | |  | |  
+    | |_| | |_| | |_| || |  | |  
+     \____|\___/ \____|___| |_|   
+    "#.green().bold());
+    println!("{}", "           AI-POWERED GIT COMPANION           ".black().on_green());
+    println!();
+
+    let choices = vec![
+        "✨ AI Commit     (Generate & Commit)",
+        "🚀 Create PR     (Draft & Support)",
+        "🕵️  Code Review   (Find Bugs & Issues)",
+        "🪝  Install Hook  (Auto-run on git commit)",
+        "🗑️  Remove Hook   (Restore native git)",
+        "🚪 Exit",
+    ];
+
+    use dialoguer::{Select, theme::ColorfulTheme};
+    let theme = ColorfulTheme {
+        active_item_style: dialoguer::console::Style::new().green().bold(),
+        ..ColorfulTheme::default()
+    };
+
+    let selection = Select::with_theme(&theme)
+        .with_prompt("Select an operation:")
+        .default(0)
+        .items(&choices)
+        .interact()
+        .unwrap_or(5); // Default to Exit on error
+
+    match selection {
+        0 => run_wrapper(Commands::Commit { args: vec![] }).await,
+        1 => run_wrapper(Commands::Pr { base: "main".to_string() }).await,
+        2 => run_wrapper(Commands::Review).await,
+        3 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
+        4 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
+        _ => println!("{}", "Bye!".cyan()),
+    }
+}
+
+async fn run_wrapper(cmd: Commands) {
+    if let Err(e) = run(cmd).await {
+         eprintln!("\n{} {}", "✖ Error:".red().bold(), e);
+         process::exit(1);
+    }
+}
+
+async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load();
     let repo = git::GitRepo::open()?;
-    let ai_client = ai::GeminiClient::new(config.model.clone()).map_err(|e| format!("Failed to init AI client: {}", e))?;
+    let ai = ai::GeminiClient::new(config.model.clone())?;
     let tui = tui::Tui::new();
-    let gh_client = github::GitHub::new().ok(); // GitHub is optional
+    
+    let github = github::GitHub::new().ok();
 
-    match cli.command.unwrap_or(Commands::Commit) {
-        Commands::Commit => {
-            handle_commit(&repo, &ai_client, &tui, &config).await?;
-        }
-        Commands::Pr { base } => {
-            handle_pr(&repo, &ai_client, &tui, &config, gh_client.as_ref(), &base).await?;
-        }
+    match command {
+        Commands::Commit { .. } => handle_commit(&repo, &ai, &tui, &config).await?,
+        Commands::Pr { base } => handle_pr(&repo, &ai, &tui, &config, github.as_ref(), &base).await?,
+        Commands::Review => review::Reviewer::run(&tui, &ai, &repo).await?,
+        Commands::Hook { action } => match action {
+            HookAction::Install => hook::HookManager::install()?,
+            HookAction::Uninstall => hook::HookManager::uninstall()?,
+        },
     }
-
     Ok(())
 }
 
