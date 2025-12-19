@@ -213,4 +213,25 @@ impl GeminiClient {
         }
         Ok(summaries.join("\n\n"))
     }
+
+    pub async fn generate_git_command(&self, description: &str) -> Result<String, AiError> {
+        self.generate_text(
+            &format!("Translate this natural language request into a valid git command:\n\n\"{}\"\n\nOutput ONLY the command itself, no explanation, no backticks. Example: git log --author=\"John\"", description),
+            "You are a Git expert. You translate natural language descriptions into precise git commands."
+        ).await
+    }
+
+    pub async fn suggest_branch_name(&self, description: &str) -> Result<String, AiError> {
+        self.generate_text(
+            &format!("Suggest a concise and descriptive git branch name for the following task:\n\n\"{}\"\n\nRules:\n- Use kebab-case.\n- Include a prefix like feat/, fix/, chore/, or docs/ if appropriate.\n- Output ONLY the branch name, no explanation, no backticks.", description),
+            "You are a Git expert. You suggest clean and standard branch names based on task descriptions."
+        ).await
+    }
+
+    pub async fn resolve_conflicts(&self, file_content: &str, file_name: &str) -> Result<String, AiError> {
+        self.generate_text(
+            &format!("Resolve the merge conflicts in the following file: {}\n\nContent:\n{}\n\nRules:\n- Maintain the intended logic from both sides where possible.\n- Remove all conflict markers (<<<<<<<, =======, >>>>>>>).\n- Output ONLY the resolved file content, no explanation, no backticks.", file_name, file_content),
+            "You are a Senior Software Engineer. You resolve merge conflicts precisely, ensuring code integrity and following project conventions."
+        ).await
+    }
 }
