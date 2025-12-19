@@ -1,0 +1,200 @@
+use futures_util::StreamExt;
+use reqwest::{Client, StatusCode};
+use serde_json::json;
+use std::env;
+use std::time::Duration;
+use tokio::time::sleep;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AiError {
+    #[error("API Request failed: {0}")]
+    Request(#[from] reqwest::Error),
+    #[error("Environment variable missing: {0}")]
+    Env(#[from] std::env::VarError),
+    #[error("Stream error: {0}")]
+    Stream(String),
+}
+
+#[derive(Clone)]
+pub struct GeminiClient {
+    client: Client,
+    api_key: String,
+    pub model: String,
+}
+
+impl GeminiClient {
+    pub fn new(model: String) -> Result<Self, AiError> {
+        let api_key = env::var("GEMINI_API_KEY")?;
+        Ok(Self {
+            client: Client::new(),
+            api_key,
+            model,
+        })
+    }
+
+    pub async fn stream_completion(
+        &self,
+        prompt: &str,
+        system_instruction: &str,
+    ) -> Result<impl futures_util::Stream<Item = Result<String, AiError>>, AiError> {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?key={}",
+            self.model, self.api_key
+        );
+
+        let body = json!({
+            "contents": [{
+                "parts": [{ "text": prompt }]
+            }],
+            "system_instruction": {
+                "parts": [{ "text": system_instruction }]
+            },
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 8192
+            }
+        });
+
+        // Retry Loop for 429
+        let mut attempts = 0;
+        let max_retries = 3;
+        
+        loop {
+            let resp = self.client
+                .post(&url)
+                .json(&body)
+                .send()
+                .await?;
+
+            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                if attempts >= max_retries {
+                    return Err(AiError::Stream("Rate limit exceeded after retries".to_string()));
+                }
+                attempts += 1;
+                eprintln!("\n[Rate Limit] Waiting 10s before retry ({}/{})...", attempts, max_retries);
+                sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+
+            if !resp.status().is_success() {
+                 return Err(AiError::Stream(format!("API Error: {}", resp.status())));
+            }
+
+            let mut stream = resp.bytes_stream();
+            let mut stream = Box::pin(stream);
+
+            // Buffer for incomplete JSON chunks
+            let mut buffer = String::new();
+
+            return Ok(async_stream::try_stream! {
+                while let Some(item) = stream.next().await {
+                    let bytes = item?;
+                    let chunk_s = String::from_utf8_lossy(&bytes);
+                    buffer.push_str(&chunk_s);
+                    
+                    // Attempt to parse accumulated buffer
+                    // Naive strategy: Check if it looks like a complete JSON array item or object
+                    // In a robust impl we'd use a parser. 
+                    // Here we look for balanced braces if we suspect it's an object, 
+                    // or just rely on the API returning valid JSON objects per line/chunk mostly.
+                    
+                    // Simple hygiene:
+                    // The Gemini stream usually returns `[{}, {}, ...]`
+                    // We try to clean up the array brackets.
+                    
+                    let clean = buffer.trim();
+                    if let Some(start) = clean.find('{') {
+                         if let Some(end) = clean.rfind('}') {
+                             if end > start {
+                                 // We have a candidate object
+                                 let potential_json = &clean[start..=end];
+                                 
+                                 match serde_json::from_str::<serde_json::Value>(potential_json) {
+                                    Ok(json) => {
+                                        // Success! Clear buffer up to this point... actually this is streaming.
+                                        // If we matched, we consume the buffer.
+                                        buffer.clear(); 
+                                        
+                                        if let Some(text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                                            yield text.to_string();
+                                        } else if let Some(err) = json.get("error") {
+                                            let msg = err["message"].as_str().unwrap_or("Unknown error");
+                                            eprintln!("\n[API Error] {}", msg);
+                                        }
+                                    },
+                                    Err(_) => {
+                                        // Not complete yet, keep buffering
+                                    }
+                                 }
+                             }
+                         }
+                    }
+                }
+            });
+        }
+    }
+
+    pub async fn generate_text(&self, prompt: &str, system_instruction: &str) -> Result<String, AiError> {
+         let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            self.model, self.api_key
+        );
+
+        let body = json!({
+            "contents": [{
+                "parts": [{ "text": prompt }]
+            }],
+             "system_instruction": {
+                "parts": [{ "text": system_instruction }]
+            },
+        });
+
+        // Retry logic for 429
+        let mut attempts = 0;
+        loop {
+            let resp = self.client
+                .post(&url)
+                .json(&body)
+                .send()
+                .await?;
+                
+            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                if attempts >= 3 {
+                    return Err(AiError::Stream("Rate limit exceeded".to_string()));
+                }
+                attempts += 1;
+                sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+
+            let json: serde_json::Value = resp.json().await?;
+            if let Some(text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                return Ok(text.to_string());
+            } else {
+                return Ok(String::new());
+            }
+        }
+    }
+
+    pub async fn smart_diff_summary(&self, diff: &str) -> Result<String, AiError> {
+        // Gemini 1.5+ has 1M+ token context. 
+        // 500,000 chars is roughly 125k tokens, well within limits.
+        // We only want to map-reduce if it's TRULY massive to avoid rate limits.
+        if diff.len() < 500_000 {
+            return Ok(diff.to_string());
+        }
+        let parts: Vec<&str> = diff.split("diff --git").collect();
+        let mut summaries = Vec::new();
+        for part in parts {
+            if part.trim().is_empty() { continue; }
+            let chunk = format!("diff --git{}", part);
+            let summary = self.generate_text(
+                &format!("Summarize the code changes in this git diff chunk:\n\n{}", chunk),
+                "You are a code summarizer. Output a concise summary of changes."
+            ).await?;
+            summaries.push(summary);
+        }
+        Ok(summaries.join("\n\n"))
+    }
+}
