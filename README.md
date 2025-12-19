@@ -10,37 +10,55 @@
 
 gogit is a command-line interface tool that integrates AI capabilities into your Git workflow, enhancing productivity and code quality. It leverages AI to generate commit messages, draft pull request descriptions, review code for potential issues, refactor code, and semantically search your Git history.
 
-## Features
+## ✨ Key Features
 
-- **AI-Powered Conflict Resolution:** Not just a check! Automatically resolve merge conflicts using AI that understands the context of both branches.
-- **Smart Branching:** Describe your next task in plain English, and let AI suggest and create a perfectly named branch for you.
-- **Natural Language Git Aliases:** Translate complex Git needs (e.g., "show last 5 commits by Bob") into native Git commands and save them as aliases.
-- **AI-Powered Commit Messages:** Automatically generate descriptive commit messages based on your staged changes.
-- **AI-Generated PR Descriptions:** Create comprehensive pull request descriptions with smart title generation.
-- **AI Code Review:** Get AI-driven analysis of your staged code for potential bugs, security vulnerabilities, and logic issues.
-- **AI-Assisted Refactoring:** Improve your code by providing natural language instructions for AI-powered refactoring.
-- **Semantic Git History Search:** Search your Git history using natural language queries to find relevant changes.
-- **Documentation Management:** Easily update your `README.md` file or generate doc-comments with AI assistance.
-- **Git Hook Management:** Automate AI actions during your Git workflow (e.g., `prepare-commit-msg`).
+- **✨ AI Commit**: Generate and commit smart, descriptive commit messages automatically.
+- **🚀 AI Pull Request**: Create detailed PR descriptions with summaries and key changes.
+- **🕵️ AI Code Review**: Receive architectural and security-focused feedback on your changes.
+- **🛠️ AI Fix**: Precision AI refactoring and bug fixing based on your instructions.
+- **🔍 AI Search**: Semantic search through your git history using natural language.
+- **📑 AI Documentation**: Automatically generate and update your project README.
+- **⚔️ AI Conflict Resolution**: Let AI help you resolve complex merge conflicts intelligently.
+- **🌱 AI Smart Branch**: Create new branches with contextually relevant, AI-suggested names.
+- **🏷️ AI NL Alias**: Translate English requests into powerful Git commands/aliases.
+- **👥 Team Power-Ups**: Generate professional release notes, navigate the repository, and analyze stale branches.
 
 ## Installation
 
-1.  **Prerequisites:**
+1. **Prerequisites:**
 
-    - Rust toolchain (Cargo) installed.
-    - Git installed and configured.
-    - An API key for the AI model provider (e.g., Gemini). Set the environment variable `GEMINI_API_KEY`.
+   - Rust toolchain (Cargo) installed.
+   - Git installed and configured.
+   - An API key for Gemini. Set `GEMINI_API_KEY` in your environment or `.env` file.
 
-2.  **Build from Source:**
+2. **Installation:**
+   The recommended way to install `gogit` is using our installer script:
+   
+  **Build from Source:**
     git clone https://github.com/buka-pitch/gogit.git
     cd gogit
     cargo build --release
     The compiled binary will be located at `target/release/gogit`. You can then move this binary to your system's PATH for easy access.
 
-3.  **Install Git Hooks (Optional but Recommended):**
-    To enable features like automatic commit message generation, install the Git hooks:
-    gogit hook install
-    This will create a `prepare-commit-msg` hook in your `.git/hooks` directory.
+   ```bash
+   chmod +x install.sh
+   ./install.sh
+   ```
+
+   This builds the binary in release mode and installs it to `~/.local/bin/`.
+
+3. **Manual Build:**
+   Alternatively, you can build it manually:
+
+   ```bash
+   cargo build --release
+   cp target/release/gogit ~/.local/bin/
+   ```
+
+4. **Install Git Hooks:**
+   ```bash
+   gogit hook install
+   ```
 
 ## Usage
 
@@ -120,7 +138,31 @@ Translate your Git requests into commands and optionally save them.
 
 gogit alias "list all files changed in the last 2 days"
 
-### 9. Documentation Management
+### 9. AI Release Notes
+
+Generate professional release notes since your last tag.
+
+# Automatically analyze commits since last tag and save to RELEASE_NOTES.md
+
+gogit release
+
+### 10. AI Repo Navigator (Explain)
+
+Get answers to your questions about the codebase.
+
+# Ask about the architecture or where a feature is implemented
+
+gogit explain "How is the encryption handled in the backend?"
+
+### 11. Smart Stale Branch Analysis
+
+Intelligently identify redundant branches that are safe to delete.
+
+# Analyze branches relative to main
+
+gogit stale
+
+### 12. Documentation Management
 
 Manage your project's documentation, including updating the README or generating doc-comments.
 
