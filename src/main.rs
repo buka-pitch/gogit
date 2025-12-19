@@ -341,12 +341,18 @@ async fn handle_pr(
     tui.stop_spinner(spinner);
     
     let system_prompt = config.pr_prompt.as_deref().unwrap_or(
-        "You are an expert developer. Generate a Pull Request description in Markdown format. \
-         Include a Summary, Key Changes, and a Checklist. \
-         Thinking Level: HIGH."
+        "You are an expert developer. Generate a professional Pull Request description in Markdown format. \
+         Focus on the COHESIVE PURPOSE of the changes. \
+         Base your description STRICTLY on the provided commits. \
+         Include a clear Summary, a high-level list of Key Changes, and a short Checklist."
     );
     
-    let prompt = format!("Here are the commits:\n\n{}", context);
+    let prompt = format!(
+        "STRICT INSTRUCTION: Only use the following commits to generate the PR. \
+        Ignore any external context or previous knowledge. \
+        COMMITS:\n\n{}", 
+        context
+    );
 
     let spinner = tui.start_thinking("Generating PR description...");
 
