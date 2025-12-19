@@ -12,15 +12,16 @@ gogit is a command-line interface tool that integrates AI capabilities into your
 
 ## Features
 
+- **AI-Powered Conflict Resolution:** Not just a check! Automatically resolve merge conflicts using AI that understands the context of both branches.
+- **Smart Branching:** Describe your next task in plain English, and let AI suggest and create a perfectly named branch for you.
+- **Natural Language Git Aliases:** Translate complex Git needs (e.g., "show last 5 commits by Bob") into native Git commands and save them as aliases.
 - **AI-Powered Commit Messages:** Automatically generate descriptive commit messages based on your staged changes.
-- **AI-Generated PR Descriptions:** Create comprehensive pull request descriptions to facilitate better code reviews and understanding.
-- **AI Code Review:** Get AI-driven analysis of your staged code for potential bugs, security vulnerabilities, performance issues, and adherence to best practices.
-- **AI-Assisted Refactoring:** Improve your code by providing natural language instructions for AI-powered refactoring of specific files.
-- **Semantic Git History Search:** Search your Git history using natural language queries to find relevant commits and changes.
-- **Merge Conflict Check:** Check for merge conflicts against any base branch without side effects before performing the actual merge.
-- **Documentation Management:** Easily update your `README.md` file or generate doc-comments for your project with AI assistance.
-- **Git Hook Management:** Install and uninstall Git hooks to automate AI actions during your Git workflow (e.g., `prepare-commit-msg`).
-- **Configuration:** Customize AI models and prompts through a configuration file.
+- **AI-Generated PR Descriptions:** Create comprehensive pull request descriptions with smart title generation.
+- **AI Code Review:** Get AI-driven analysis of your staged code for potential bugs, security vulnerabilities, and logic issues.
+- **AI-Assisted Refactoring:** Improve your code by providing natural language instructions for AI-powered refactoring.
+- **Semantic Git History Search:** Search your Git history using natural language queries to find relevant changes.
+- **Documentation Management:** Easily update your `README.md` file or generate doc-comments with AI assistance.
+- **Git Hook Management:** Automate AI actions during your Git workflow (e.g., `prepare-commit-msg`).
 
 ## Installation
 
@@ -93,15 +94,33 @@ gogit search "user authentication"
 
 gogit search "performance improvements"
 
-### 6. Check for Merge Conflicts
+### 6. AI Conflict Resolution
 
-Check if merging your current branch into a base branch would result in any conflicts. This is a dry-run and does not modify your files.
+Check if merging your current branch into a base branch would result in any conflicts, and optionally let AI resolve them for you.
 
 # Check for conflicts against the 'main' branch
 
 gogit check --base main
 
-### 7. Documentation Management
+# If conflicts are found, gogit will offer to resolve them using AI.
+
+### 7. Smart Branching
+
+Create a new branch with an AI-suggested name based on your task.
+
+# Describe your task to create a branch
+
+gogit branch "fix the navigation bar bug on mobile"
+
+### 8. Natural Language Aliases
+
+Translate your Git requests into commands and optionally save them.
+
+# Get a command for a specific need
+
+gogit alias "list all files changed in the last 2 days"
+
+### 9. Documentation Management
 
 Manage your project's documentation, including updating the README or generating doc-comments.
 

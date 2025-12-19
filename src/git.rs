@@ -277,4 +277,50 @@ impl GitRepo {
             conflicted_files,
         })
     }
+
+    pub fn get_last_tag(&self) -> Result<Option<String>, GitError> {
+        let output = Command::new("git")
+            .arg("describe")
+            .arg("--tags")
+            .arg("--abbrev=0")
+            .output()?;
+
+        if output.status.success() {
+            Ok(Some(String::from_utf8(output.stdout)?.trim().to_string()))
+        } else {
+            // If no tags found, this command usually fails with exit code 128
+            Ok(None)
+        }
+    }
+
+    pub fn get_commits_since_ref(&self, reference: Option<&str>) -> Result<String, GitError> {
+        let mut cmd = Command::new("git");
+        cmd.arg("log");
+        
+        if let Some(r) = reference {
+            cmd.arg(format!("{}..HEAD", r));
+        }
+
+        cmd.arg("--pretty=format:- %s (%h)")
+           .arg("--no-merges");
+
+        let output = cmd.output()?;
+        if !output.status.success() {
+            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+        }
+
+        Ok(String::from_utf8(output.stdout)?)
+    }
+
+    pub fn get_repo_tree(&self) -> Result<String, GitError> {
+        let output = Command::new("git")
+            .arg("ls-files")
+            .output()?;
+
+        if !output.status.success() {
+            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+        }
+
+        Ok(String::from_utf8(output.stdout)?)
+    }
 }

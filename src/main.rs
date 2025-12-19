@@ -66,6 +66,19 @@ enum Commands {
         /// Description of the work to be done in the branch
         description: String,
     },
+    /// Generate release notes since the last tag
+    Release {
+        /// Starting tag/ref (default: last tag)
+        #[arg(long)]
+        from: Option<String>,
+    },
+    /// Explain a part of the repository or answer a question
+    Explain {
+        /// Your question about the codebase
+        question: Option<String>,
+    },
+    /// Find and analyze stale/redundant branches
+    Stale,
     /// Manage git hooks
     Hook {
         #[command(subcommand)]
@@ -147,8 +160,11 @@ async fn show_main_menu() {
         "🔍 Search History - Natural language commit search",
         "📑 Generate Doc    - Update your project README",
         "⚔️ Check Conflicts - Dry-run merge check",
-        "🌱 Smart Branch   - AI-suggested branch names",
-        "🏷️ NL Alias       - Translate English to Git commands",
+        "🌱 Smart Branch   - AI-suggested branch name",
+        "🏷️ NL Alias       - Translate English to Git command",
+        "📋 Release Notes  - AI Categorized changelog",
+        "🗺️ Repo Navigator - AI answers about the code",
+        "🧹 Stale Branches - Intelligent branch cleanup",
         "🪝 Install Hook   - Auto-run on every commit",
         "🗑️ Remove Hook    - Restore native git behavior",
         "🚪 Exit",
@@ -167,7 +183,7 @@ async fn show_main_menu() {
         .default(0)
         .items(&choices)
         .interact()
-        .unwrap_or(11); // Default to Exit on error
+        .unwrap_or(14); // Default to Exit on error
 
     match selection {
         0 => run_wrapper(Commands::Commit { args: vec![] }).await,
@@ -205,8 +221,17 @@ async fn show_main_menu() {
                 .unwrap();
             run_wrapper(Commands::Alias { description: Some(desc) }).await;
         },
-        9 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
-        10 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
+        9 => run_wrapper(Commands::Release { from: None }).await,
+        10 => {
+            let q: String = dialoguer::Input::new()
+                .with_prompt("What would you like to know about the code?")
+                .interact_text()
+                .unwrap();
+            run_wrapper(Commands::Explain { question: Some(q) }).await;
+        },
+        11 => run_wrapper(Commands::Stale).await,
+        12 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
+        13 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
         _ => println!("{}", "Bye!".cyan()),
     }
 }
@@ -239,6 +264,9 @@ async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Check { base } => handle_check_conflicts(&repo, &ai, &tui, &base).await?,
         Commands::Branch { description } => handle_smart_branch(&repo, &ai, &tui, &description).await?,
         Commands::Alias { description } => handle_nl_alias(&ai, &tui, description).await?,
+        Commands::Release { from } => handle_release_notes(&repo, &ai, &tui, from).await?,
+        Commands::Explain { question } => handle_explain(&repo, &ai, &tui, question).await?,
+        Commands::Stale => handle_stale_branches(&repo, &ai, &tui).await?,
         Commands::Hook { action } => match action {
             HookAction::Install => hook::HookManager::install()?,
             HookAction::Uninstall => hook::HookManager::uninstall()?,
@@ -699,5 +727,84 @@ async fn handle_smart_branch(
         eprintln!("{} Failed to create branch: {}", "✖".red(), String::from_utf8_lossy(&output.stderr));
     }
 
+    Ok(())
+}
+
+async fn handle_release_notes(
+    repo: &git::GitRepo,
+    ai: &ai::GeminiClient,
+    tui: &tui::Tui,
+    from_ref: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let base_ref = match from_ref {
+        Some(r) => Some(r),
+        None => repo.get_last_tag()?,
+    };
+
+    let spinner = tui.start_thinking(&format!("Analyzing commits since {}...", base_ref.as_deref().unwrap_or("the beginning")));
+    let commits = repo.get_commits_since_ref(base_ref.as_deref())?;
+    tui.stop_spinner(spinner);
+
+    if commits.trim().is_empty() {
+        println!("{} No new commits found since {}", "ℹ".blue(), base_ref.unwrap_or_else(|| "the beginning".to_string()));
+        return Ok(());
+    }
+
+    let spinner = tui.start_thinking("Generating RELEASE_NOTES.md...");
+    let notes = ai.generate_release_notes(&commits).await?;
+    tui.stop_spinner(spinner);
+
+    println!("\n{}\n", "--- PREVIEW ---".dim());
+    println!("{}", notes);
+    println!("\n{}\n", "---------------".dim());
+
+    if tui.prompt_yes_no("Save to RELEASE_NOTES.md?")? {
+        std::fs::write("RELEASE_NOTES.md", &notes)?;
+        println!("{} Successfully saved to RELEASE_NOTES.md", "✔".green());
+    }
+
+    Ok(())
+}
+
+async fn handle_explain(
+    repo: &git::GitRepo,
+    ai: &ai::GeminiClient,
+    tui: &tui::Tui,
+    question: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let q = match question {
+        Some(s) => s,
+        None => dialoguer::Input::new().with_prompt("What would you like to know about this repository?").interact_text()?,
+    };
+
+    let spinner = tui.start_thinking("Scanning repository structure...");
+    let tree = repo.get_repo_tree()?;
+    tui.stop_spinner(spinner);
+
+    // Get some basic context: README and Cargo.toml/package.json if they exist
+    let mut context_files = Vec::new();
+    for f in &["README.md", "Cargo.toml", "package.json", "go.mod"] {
+        if let Ok(content) = std::fs::read_to_string(f) {
+            context_files.push(format!("File: {}\n---\n{}\n---", f, content));
+        }
+    }
+    let context = context_files.join("\n\n");
+
+    let spinner = tui.start_thinking("Architecting an answer...");
+    let answer = ai.answer_repo_question(&q, &tree, &context).await?;
+    tui.stop_spinner(spinner);
+
+    println!("\n{} AI Architect Says:", "🗺️".cyan());
+    println!("\n{}\n", answer);
+
+    Ok(())
+}
+
+async fn handle_stale_branches(
+    _repo: &git::GitRepo,
+    _ai: &ai::GeminiClient,
+    _tui: &tui::Tui,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Stale branch analysis coming soon!");
     Ok(())
 }
