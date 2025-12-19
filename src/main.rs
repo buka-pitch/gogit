@@ -56,6 +56,16 @@ enum Commands {
         #[arg(long, default_value = "main")]
         base: String,
     },
+    /// Generate a git alias from natural language
+    Alias {
+        /// The natural language description of the command
+        description: Option<String>,
+    },
+    /// Create a branch with an AI-suggested name
+    Branch {
+        /// Description of the work to be done in the branch
+        description: String,
+    },
     /// Manage git hooks
     Hook {
         #[command(subcommand)]
@@ -137,6 +147,8 @@ async fn show_main_menu() {
         "🔍 Search History - Natural language commit search",
         "📑 Generate Doc    - Update your project README",
         "⚔️ Check Conflicts - Dry-run merge check",
+        "🌱 Smart Branch   - AI-suggested branch names",
+        "🏷️ NL Alias       - Translate English to Git commands",
         "🪝 Install Hook   - Auto-run on every commit",
         "🗑️ Remove Hook    - Restore native git behavior",
         "🚪 Exit",
@@ -155,7 +167,7 @@ async fn show_main_menu() {
         .default(0)
         .items(&choices)
         .interact()
-        .unwrap_or(9); // Default to Exit on error
+        .unwrap_or(11); // Default to Exit on error
 
     match selection {
         0 => run_wrapper(Commands::Commit { args: vec![] }).await,
@@ -179,8 +191,22 @@ async fn show_main_menu() {
                 .unwrap();
             run_wrapper(Commands::Check { base }).await;
         },
-        7 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
-        8 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
+        7 => {
+            let desc: String = dialoguer::Input::new()
+                .with_prompt("What are you working on?")
+                .interact_text()
+                .unwrap();
+            run_wrapper(Commands::Branch { description: desc }).await;
+        },
+        8 => {
+            let desc: String = dialoguer::Input::new()
+                .with_prompt("Describe the git command you want")
+                .interact_text()
+                .unwrap();
+            run_wrapper(Commands::Alias { description: Some(desc) }).await;
+        },
+        9 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
+        10 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
         _ => println!("{}", "Bye!".cyan()),
     }
 }
@@ -210,7 +236,9 @@ async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Fix { file, instruction } => refactor::Refactorer::run(&tui, &ai, &file, &instruction).await?,
         Commands::Search { query } => search::HistorySearcher::run(&tui, &ai, &repo, &query).await?,
         Commands::Doc => doc::DocGenerator::run_menu(&tui, &ai, &repo).await?,
-        Commands::Check { base } => handle_check_conflicts(&repo, &tui, &base).await?,
+        Commands::Check { base } => handle_check_conflicts(&repo, &ai, &tui, &base).await?,
+        Commands::Branch { description } => handle_smart_branch(&repo, &ai, &tui, &description).await?,
+        Commands::Alias { description } => handle_nl_alias(&ai, &tui, description).await?,
         Commands::Hook { action } => match action {
             HookAction::Install => hook::HookManager::install()?,
             HookAction::Uninstall => hook::HookManager::uninstall()?,
@@ -385,7 +413,7 @@ async fn handle_pr(
          Focus on the COHESIVE PURPOSE of the changes at an executive level. \
          Do not list every single commit as a checklist item. \
          Base your description STRICTLY on the provided commits. \
-         Structure: \n# Summary\n(One paragraph summary)\n\n# Key Changes\n- (High level bullet)\n\n# Checklist\n- [x] (Max 5 technical milestones)"
+         Structure: \n# [A concise, descriptive PR title]\n\n## Summary\n(One paragraph summary)\n\n## Key Changes\n- (High level bullet)\n\n## Checklist\n- [x] (Max 5 technical milestones)"
     );
     
     let prompt = format!(
@@ -441,8 +469,15 @@ async fn handle_pr(
             let current_branch = repo.get_current_branch()?;
             let (owner, repo_name) = repo.get_remote_info()?;
             
-            let (title, body) = if let Some((t, b)) = clean_msg.split_once('\n') {
-                (t.trim().trim_start_matches("# ").to_string(), b.trim().to_string())
+            // Extract title from the first line (if it starts with #)
+            let (title, body) = if clean_msg.starts_with("# ") {
+                if let Some((t, b)) = clean_msg.split_once('\n') {
+                    (t.trim_start_matches("# ").trim().to_string(), b.trim().to_string())
+                } else {
+                    (clean_msg.trim_start_matches("# ").trim().to_string(), String::new())
+                }
+            } else if let Some((t, b)) = clean_msg.split_once('\n') {
+                (t.trim().to_string(), b.trim().to_string())
             } else {
                 ("Automated PR".to_string(), clean_msg.clone())
             };
@@ -505,6 +540,7 @@ async fn handle_pr(
 
 async fn handle_check_conflicts(
     repo: &git::GitRepo,
+    ai: &ai::GeminiClient,
     tui: &tui::Tui,
     base: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -520,11 +556,148 @@ async fn handle_check_conflicts(
         for file in &result.conflicted_files {
             println!("  - {}", file.clone().yellow());
         }
-        println!("\n{}", "Tip: You'll need to resolve these manually before pushing.".dim());
+        println!("\n{}", "Tip: You'll need to resolve these manually or use AI Fix.".dim());
+
+        let fix = dialoguer::Confirm::new()
+            .with_prompt("Would you like to use AI to resolve these conflicts?")
+            .default(true)
+            .interact()?;
+
+        if fix {
+            resolve_conflicts_interactive(repo, ai, tui, base, &result.conflicted_files).await?;
+        }
     } else {
         println!("\n{}", "✔ CLEAN MERGE".green().bold());
         println!("Merging {} into {} would be conflict-free.", current_branch, base);
     }
     
+    Ok(())
+}
+
+async fn resolve_conflicts_interactive(
+    repo: &git::GitRepo,
+    ai: &ai::GeminiClient,
+    tui: &tui::Tui,
+    base: &str,
+    conflicted_files: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n{} Attempting to merge {} into your current branch...", "ℹ".blue(), base);
+    
+    // Actually run git merge
+    let mut merge_cmd = std::process::Command::new("git");
+    merge_cmd.arg("merge").arg(base);
+    
+    let merge_output = merge_cmd.output()?;
+    if merge_output.status.success() {
+        println!("{} Merge completed successfully (no conflicts after all?)", "✔".green());
+        return Ok(());
+    }
+
+    println!("{} Commencing AI Resolution for {} files...", "🚀".cyan(), conflicted_files.len());
+
+    for file in conflicted_files {
+        let spinner = tui.start_thinking(&format!("Resolving {}...", file));
+        
+        let content = std::fs::read_to_string(file)?;
+        let resolved = ai.resolve_conflicts(&content, file).await?;
+        
+        std::fs::write(file, resolved)?;
+        
+        // Add resolved file
+        repo.stage_files(&[file.clone()])?;
+        
+        tui.stop_spinner(spinner);
+        println!("  {} Resolved {}", "✔".green(), file.clone().yellow());
+    }
+
+    println!("\n{} All conflicts resolved by AI!", "✨".green().bold());
+    
+    let commit = dialoguer::Confirm::new()
+        .with_prompt("Would you like to commit the resolution?")
+        .default(true)
+        .interact()?;
+
+    if commit {
+        repo.commit("chore: resolve merge conflicts using gogit AI")?;
+        println!("{} Resolution committed!", "✔".green());
+    } else {
+        println!("{} Files staged. You can review and commit manually.", "ℹ".blue());
+    }
+
+    Ok(())
+}
+
+async fn handle_nl_alias(
+    ai: &ai::GeminiClient,
+    tui: &tui::Tui,
+    description: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let desc = match description {
+        Some(d) => d,
+        None => dialoguer::Input::new().with_prompt("Describe the git command").interact_text()?,
+    };
+
+    let spinner = tui.start_thinking("Translating to Git command...");
+    let command = ai.generate_git_command(&desc).await?;
+    tui.stop_spinner(spinner);
+
+    println!("\n{} Recommended command:", "💡".yellow());
+    println!("  {}", command.clone().cyan().bold());
+
+    let confirm = dialoguer::Confirm::new()
+        .with_prompt("Would you like to save this as a git alias?")
+        .default(false)
+        .interact()?;
+
+    if confirm {
+        let alias_name: String = dialoguer::Input::new()
+            .with_prompt("Alias name (e.g., 'recent')")
+            .interact_text()?;
+        
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("config")
+           .arg("--global")
+           .arg(format!("alias.{}", alias_name))
+           .arg(command.trim_start_matches("git ").trim());
+
+        let output = cmd.output()?;
+        if output.status.success() {
+            println!("{} Alias '{}' saved successfully!", "✔".green(), alias_name);
+            println!("You can now run it using: {} {}", "git".dim(), alias_name.yellow());
+        } else {
+            eprintln!("{} Failed to save alias: {}", "✖".red(), String::from_utf8_lossy(&output.stderr));
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_smart_branch(
+    _repo: &git::GitRepo,
+    ai: &ai::GeminiClient,
+    tui: &tui::Tui,
+    description: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let spinner = tui.start_thinking("Suggesting branch name...");
+    let suggest_name = ai.suggest_branch_name(description).await?;
+    tui.stop_spinner(spinner);
+
+    println!("\n{} AI Suggestion: {}", "🌱".green(), suggest_name.clone().yellow().bold());
+
+    let branch_name: String = dialoguer::Input::new()
+        .with_prompt("Confirm or edit branch name")
+        .default(suggest_name)
+        .interact_text()?;
+
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("checkout").arg("-b").arg(&branch_name);
+
+    let output = cmd.output()?;
+    if output.status.success() {
+        println!("{} Switched to a new branch '{}'", "✔".green(), branch_name);
+    } else {
+        eprintln!("{} Failed to create branch: {}", "✖".red(), String::from_utf8_lossy(&output.stderr));
+    }
+
     Ok(())
 }
