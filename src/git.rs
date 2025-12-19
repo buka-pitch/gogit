@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 use thiserror::Error;
-use gix::index::Entry;
+// removed unused Entry
 
 #[derive(Error, Debug)]
 pub enum GitError {

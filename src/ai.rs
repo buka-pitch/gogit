@@ -81,7 +81,7 @@ impl GeminiClient {
                  return Err(AiError::Stream(format!("API Error: {}", resp.status())));
             }
 
-            let mut stream = resp.bytes_stream();
+            let stream = resp.bytes_stream();
             let mut stream = Box::pin(stream);
 
             // Buffer for incomplete JSON chunks

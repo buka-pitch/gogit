@@ -5,6 +5,9 @@ mod config;
 mod github;
 mod review;
 mod hook;
+mod refactor;
+mod search;
+mod doc;
 
 use clap::{Parser, Subcommand};
 use crossterm::style::Stylize;
@@ -36,6 +39,17 @@ enum Commands {
     },
     /// Review code changes
     Review,
+    /// Fix a specific issue in a file
+    Fix {
+        file: String,
+        instruction: String,
+    },
+    /// Semantic search in git history
+    Search {
+        query: String,
+    },
+    /// Generate project documentation
+    Doc,
     /// Manage git hooks
     Hook {
         #[command(subcommand)]
@@ -71,7 +85,7 @@ async fn main() {
 }
 
 async fn show_main_menu() {
-    let tui = tui::Tui::new();
+    let _tui = tui::Tui::new();
     
     // Clear screen
     print!("\x1B[2J\x1B[1;1H");
@@ -91,6 +105,9 @@ async fn show_main_menu() {
         "✨ AI Commit     (Generate & Commit)",
         "🚀 Create PR     (Draft & Support)",
         "🕵️  Code Review   (Find Bugs & Issues)",
+        "🛠️  AI Fix        (Refactor/Fix File)",
+        "🔍 Search History (Natural Language Search)",
+        "📑 Generate Doc   (Update README.md)",
         "🪝  Install Hook  (Auto-run on git commit)",
         "🗑️  Remove Hook   (Restore native git)",
         "🚪 Exit",
@@ -113,8 +130,18 @@ async fn show_main_menu() {
         0 => run_wrapper(Commands::Commit { args: vec![] }).await,
         1 => run_wrapper(Commands::Pr { base: "main".to_string() }).await,
         2 => run_wrapper(Commands::Review).await,
-        3 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
-        4 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
+        3 => {
+            let file: String = dialoguer::Input::new().with_prompt("File to fix").interact_text().unwrap();
+            let instr: String = dialoguer::Input::new().with_prompt("Instruction").interact_text().unwrap();
+            run_wrapper(Commands::Fix { file, instruction: instr }).await;
+        },
+        4 => {
+             let q: String = dialoguer::Input::new().with_prompt("Search query").interact_text().unwrap();
+             run_wrapper(Commands::Search { query: q }).await;
+        },
+        5 => run_wrapper(Commands::Doc).await,
+        6 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
+        7 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
         _ => println!("{}", "Bye!".cyan()),
     }
 }
@@ -141,6 +168,9 @@ async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
         },
         Commands::Pr { base } => handle_pr(&repo, &ai, &tui, &config, github.as_ref(), &base).await?,
         Commands::Review => review::Reviewer::run(&tui, &ai, &repo).await?,
+        Commands::Fix { file, instruction } => refactor::Refactorer::run(&tui, &ai, &file, &instruction).await?,
+        Commands::Search { query } => search::HistorySearcher::run(&tui, &ai, &repo, &query).await?,
+        Commands::Doc => doc::DocGenerator::run_menu(&tui, &ai).await?,
         Commands::Hook { action } => match action {
             HookAction::Install => hook::HookManager::install()?,
             HookAction::Uninstall => hook::HookManager::uninstall()?,

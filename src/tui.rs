@@ -1,4 +1,4 @@
-use crossterm::style::{Stylize, Print};
+use crossterm::style::Stylize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{stdout, Write};
 use std::io;
