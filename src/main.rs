@@ -8,12 +8,15 @@ mod hook;
 mod refactor;
 mod search;
 mod doc;
+mod assets;
 
 use clap::{Parser, Subcommand};
 use crossterm::style::Stylize;
 use futures_util::StreamExt;
 use std::process;
 use tokio;
+
+const MAX_STALE_BRANCHES: usize = 20;
 
 #[derive(Parser)]
 #[command(name = "gogit")]
@@ -25,61 +28,64 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Generate a commit message for staged changes
+    /// Generate an AI commit message for staged changes
     Commit {
         /// (Hidden) Arguments passed by git hook (commit_msg_file, source, sha1)
         #[arg(hide = true)]
         args: Vec<String>,
     },
-    /// Generate a PR description
+    /// Create a comprehensive AI pull request description
     Pr {
         /// Base branch to compare against (default: main)
         #[arg(long, default_value = "main")]
         base: String,
     },
-    /// Review code changes
+    /// AI-driven code review of your staged changes
     Review,
-    /// Fix a specific issue in a file
+    /// Precision AI refactoring based on your instructions
     Fix {
+        /// File to modify
         file: String,
+        /// Instructions for the refactoring
         instruction: String,
     },
-    /// Semantic search in git history
+    /// Semantic, natural language search through git history
     Search {
+        /// Natural language search query
         query: String,
     },
-    /// Generate project documentation
+    /// Intelligent project documentation management (README, etc.)
     Doc,
-    /// Check for merge conflicts
+    /// Dry-run merge check with optional AI conflict resolution
     Check {
         /// Base branch to check against (default: main)
         #[arg(long, default_value = "main")]
         base: String,
     },
-    /// Generate a git alias from natural language
+    /// Translate natural language into native Git aliases
     Alias {
-        /// The natural language description of the command
+        /// Description of the desired git command
         description: Option<String>,
     },
-    /// Create a branch with an AI-suggested name
+    /// Create a new branch with an AI-suggested name
     Branch {
-        /// Description of the work to be done in the branch
+        /// Description of the work to be done in the new branch
         description: String,
     },
-    /// Generate release notes since the last tag
+    /// Generate professional release notes since the last tag
     Release {
-        /// Starting tag/ref (default: last tag)
+        /// Starting tag or reference (default: latest tag)
         #[arg(long)]
         from: Option<String>,
     },
-    /// Explain a part of the repository or answer a question
+    /// Ask natural language questions about your codebase
     Explain {
-        /// Your question about the codebase
+        /// Your question about the repository
         question: Option<String>,
     },
-    /// Find and analyze stale/redundant branches
+    /// Intelligent analysis of stale or redundant branches
     Stale,
-    /// Manage git hooks
+    /// Install or uninstall automated Git hooks
     Hook {
         #[command(subcommand)]
         action: HookAction,
@@ -119,35 +125,10 @@ async fn show_main_menu() {
     // Clear screen
     print!("\x1B[2J\x1B[1;1H");
     
-    // Attempt to render the actual image using viuer
-    let viuer_config = viuer::Config {
-        width: Some(80),
-        transparent: true,
-        ..Default::default()
-    };
-
-    if let Err(_) = viuer::print_from_file("img1.png", &viuer_config) {
-        // Fallback 1: Dynamic ASCII Art
-        let mut logo = String::new();
-        let ascii_options = rascii_art::RenderOptions {
-            width: Some(80),
-            colored: true,
-            ..Default::default()
-        };
-
-        if let Err(_) = rascii_art::render_to("img1.png", &mut logo, &ascii_options) {
-            // Fallback 2: Manual ASCII Art
-            println!("{}", "  ________  ________  ________  ___  _________   ".green().bold());
-            println!("{}", r#" |\   ____\|\   __  \|\   ____\|\  \|\___   ___\ "#.green().bold());
-            println!("{}", r#" \ \  \___|\ \  \ \  \ \  \___| \  \|___ \  \_| "#.cyan().bold());
-            println!("{}", r#"  \ \  \  __\ \  \ \  \ \  \  __\ \  \   \ \  \  "#.cyan().bold());
-            println!("{}", r#"   \ \  \|\  \ \  \_\  \ \  \|\  \ \  \   \ \  \ "#.blue().bold());
-            println!("{}", r#"    \ \_______\ \_______\ \_______\ \__\   \ \__\"#.blue().bold());
-            println!("{}", r"     \|_______|\|_______|\|_______|\|__|    \|__|".magenta().bold());
-        } else {
-            println!("{}", logo);
-        }
-    }
+    render_logo().await;
+    println!();
+    println!("{}", "             ✨ AI-POWERED GIT COMPANION ✨           ".black().on_green());
+    println!();
     println!();
     println!("{}", "             ✨ AI-POWERED GIT COMPANION ✨           ".black().on_green());
     println!();
@@ -801,10 +782,82 @@ async fn handle_explain(
 }
 
 async fn handle_stale_branches(
-    _repo: &git::GitRepo,
-    _ai: &ai::GeminiClient,
-    _tui: &tui::Tui,
+    repo: &git::GitRepo,
+    ai: &ai::GeminiClient,
+    tui: &tui::Tui,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Stale branch analysis coming soon!");
+    let spinner = tui.start_thinking("Gathering branch information...");
+    let branches = repo.get_branches()?;
+    let current_branch = repo.get_current_branch()?;
+
+    // We'll analyze more branches and be smarter about filtering meta-refs
+    let mut branch_info = Vec::new();
+    let main_branches = ["main", "master", "develop"];
+    
+    for b in branches.iter() {
+        let b_lower = b.to_lowercase();
+        
+        // Skip current branch, main meta-branches, and common meta-refs like HEAD
+        let is_main = main_branches.iter().any(|&m| b_lower == m || b_lower.ends_with(&format!("/{}", m)));
+        if b == &current_branch || is_main || b_lower.contains("head") {
+             continue;
+        }
+        
+        if branch_info.len() >= MAX_STALE_BRANCHES {
+            break;
+        }
+
+        let summary = repo.get_branch_summary(b, "main").unwrap_or_else(|_| "No summary available".to_string());
+        branch_info.push(format!("Branch: {}\nRecent Commits:\n{}\n", b, summary));
+    }
+    tui.stop_spinner(spinner);
+
+    if branch_info.is_empty() {
+        println!("{} No secondary branches found to analyze.", "ℹ".blue());
+        return Ok(());
+    }
+
+    let spinner = tui.start_thinking("Analyzing branch content with AI...");
+    let analysis = ai.analyze_branch_staleness(&branch_info.join("\n---\n")).await?;
+    tui.stop_spinner(spinner);
+
+    println!("\n{} AI Stale Branch Analysis:", "🧹".cyan());
+    println!("\n{}\n", analysis);
+
+    println!("{} Note: No branches were deleted. Use 'git branch -d <name>' to clean up.", "ℹ".dim());
+
     Ok(())
+}
+
+async fn render_logo() {
+    let viuer_config = viuer::Config { width: Some(80), transparent: true, ..Default::default() };
+
+    // Primary: Try local file
+    if viuer::print_from_file("img1.png", &viuer_config).is_ok() { return; }
+
+    // Secondary: Try embedded asset via temp file
+    let temp_path = std::env::temp_dir().join("gogit_logo.png");
+    let _ = std::fs::write(&temp_path, assets::LOGO_BYTES);
+    if viuer::print_from_file(&temp_path, &viuer_config).is_ok() { return; }
+
+    // Tertiary: Dynamic ASCII Art
+    let mut logo_vec = Vec::new();
+    let ascii_options = rascii_art::RenderOptions { width: Some(80), colored: true, ..Default::default() };
+    
+    let cover_path = std::env::temp_dir().join("gogit_cover.png");
+    let _ = std::fs::write(&cover_path, assets::COVER_BYTES);
+    
+    if rascii_art::render(&*cover_path.to_string_lossy(), &mut logo_vec, &ascii_options).is_ok() {
+        println!("{}", String::from_utf8_lossy(&logo_vec));
+        return;
+    }
+
+    // Quaternary: Static Text Art Fallback
+    println!("{}", "  ________  ________  ________  ___  _________   ".green().bold());
+    println!("{}", r#" |\   ____\|\   __  \|\   ____\|\  \|\___   ___\ "#.green().bold());
+    println!("{}", r#" \ \  \___|\ \  \ \  \ \  \___| \  \|___ \  \_| "#.cyan().bold());
+    println!("{}", r#"  \ \  \  __\ \  \ \  \ \  \  __\ \  \   \ \  \  "#.cyan().bold());
+    println!("{}", r#"   \ \  \|\  \ \  \_\  \ \  \|\  \ \  \   \ \  \ "#.blue().bold());
+    println!("{}", r#"    \ \_______\ \_______\ \_______\ \__\   \ \__\"#.blue().bold());
+    println!("{}", r"     \|_______|\|_______|\|_______|\|__|    \|__|".magenta().bold());
 }

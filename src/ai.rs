@@ -1,3 +1,11 @@
+use thiserror::Error;
+use reqwest::{Client, StatusCode};
+use serde_json::json;
+use std::time::Duration;
+use std::env;
+use tokio::time::sleep;
+use futures_util::{Stream, StreamExt};
+
 /// Represents an error that can occur during AI operations.
 #[derive(Error, Debug)]
 pub enum AiError {
@@ -339,6 +347,13 @@ impl GeminiClient {
         self.generate_text(
             &format!("Question about the repository:\n\"{}\"\n\nProject Structure:\n{}\n\nRelevant Context/File Contents:\n{}\n\nInstructions:\n- Answer the question accurately based on the provided files and structure.\n- Explain 'where things are' and 'how things work'.\n- Be concise and helpful for a new developer onboarding.", question, files, context),
             "You are a Senior Architect. You act as a technical guide for the codebase, helping developers navigate and understand the repository."
+        ).await
+    }
+
+    pub async fn analyze_branch_staleness(&self, branch_info: &str) -> Result<String, AiError> {
+        self.generate_text(
+            &format!("Analyze these Git branches for staleness/redundancy:\n\n{}\n\nInstructions:\n- Identify which branches are safe to delete.\n- A branch is safe if its changes are likely already in the base branch or if it was a temporary fix.\n- Be conservative but helpful.\n- Output a clear, bulleted list with 'Safe to Delete' or 'Keep' for each branch, with a one-sentence reason.", branch_info),
+            "You are a DevOps Engineer specializing in repository maintenance. You help teams keep their branches tidy and secure."
         ).await
     }
 }

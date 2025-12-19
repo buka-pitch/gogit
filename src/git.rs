@@ -323,4 +323,54 @@ impl GitRepo {
 
         Ok(String::from_utf8(output.stdout)?)
     }
+
+    pub fn get_branches(&self) -> Result<Vec<String>, GitError> {
+        let output = Command::new("git")
+            .arg("branch")
+            .arg("-a")
+            .arg("--format=%(refname:short)")
+            .output()?;
+
+        if !output.status.success() {
+            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+        }
+
+        let output_str = String::from_utf8(output.stdout)?;
+        Ok(output_str.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+    }
+
+    pub fn get_merged_branches(&self, base: &str) -> Result<Vec<String>, GitError> {
+        let output = Command::new("git")
+            .arg("branch")
+            .arg("--merged")
+            .arg(base)
+            .arg("--format=%(refname:short)")
+            .output()?;
+
+        if !output.status.success() {
+            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+        }
+
+        let output_str = String::from_utf8(output.stdout)?;
+        Ok(output_str.lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && s != base)
+            .collect())
+    }
+
+    pub fn get_branch_summary(&self, branch: &str, base: &str) -> Result<String, GitError> {
+        let output = Command::new("git")
+            .arg("log")
+            .arg(format!("{}..{}", base, branch))
+            .arg("--oneline")
+            .arg("-n")
+            .arg("5")
+            .output()?;
+
+        if !output.status.success() {
+            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+        }
+
+        Ok(String::from_utf8(output.stdout)?)
+    }
 }
