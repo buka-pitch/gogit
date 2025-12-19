@@ -1,37 +1,61 @@
 use std::path::Path;
 use std::process::Command;
 use thiserror::Error;
-// removed unused Entry
 
+/// Represents errors that can occur during Git operations.
 #[derive(Error, Debug)]
 pub enum GitError {
+    /// An error occurred during Git repository discovery.
     #[error("Git discovery error: {0}")]
     Discovery(#[from] gix::discover::Error),
+    /// An input/output error occurred.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    /// A UTF-8 conversion error occurred.
     #[error("Utf8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+    /// A UTF-8 slice conversion error occurred.
     #[error("Utf8 slice error: {0}")]
     Utf8Str(#[from] std::str::Utf8Error),
+    /// A Git command failed to execute successfully.
     #[error("Git command failed: {0}")]
     Cmd(String),
 }
 
+/// Represents a Git repository and provides methods for interacting with it.
 pub struct GitRepo {
     repo: gix::Repository,
 }
 
+/// Represents the result of a merge operation, indicating whether conflicts occurred
+/// and which files are in conflict.
 pub struct MergeResult {
+    /// `true` if merge conflicts were detected, `false` otherwise.
     pub has_conflicts: bool,
+    /// A list of file paths that are in conflict.
     pub conflicted_files: Vec<String>,
 }
 
 impl GitRepo {
+    /// Opens the Git repository in the current directory.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `GitRepo` instance if successful, or a `GitError` if the repository cannot be opened.
     pub fn open() -> Result<Self, GitError> {
         let repo = gix::discover(".")?;
         Ok(Self { repo })
     }
 
+    /// Retrieves the diff of staged changes in the Git repository.
+    ///
+    /// This method calculates the difference between the staged index and the last commit.
+    /// It excludes files that are typically ignored by package managers or are binary assets.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `String` representing the diff in the standard Git diff format if successful,
+    /// or a `GitError` if any Git command or file operation fails. Returns an empty string if there are no staged changes.
     pub fn get_staged_diff(&self) -> Result<String, GitError> {
         let repo = &self.repo;
         let index = repo.open_index().map_err(|e| GitError::Cmd(e.to_string()))?; // gix 0.66 uses open_index
@@ -64,6 +88,18 @@ impl GitRepo {
         Ok(String::from_utf8(output.stdout)?)
     }
 
+    /// Checks if a given file path should be ignored.
+    ///
+    /// This method currently ignores common lock files (`package-lock.json`, `yarn.lock`, `Cargo.lock`, `pnpm-lock.yaml`, `go.sum`)
+    /// and common binary file extensions (`.map`, `.svg`, `.png`, `.jpg`).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A string slice representing the file path to check.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the file should be ignored, `false` otherwise.
     fn is_ignored(&self, path: &str) -> bool {
         let p = Path::new(path);
         
@@ -85,6 +121,15 @@ impl GitRepo {
         false
     }
 
+    /// Commits staged changes with the given message.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The commit message.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `()` if the commit was successful, or a `GitError` if the commit failed.
     pub fn commit(&self, message: &str) -> Result<(), GitError> {
         let output = Command::new("git")
             .arg("commit")
@@ -98,6 +143,13 @@ impl GitRepo {
          Ok(())
     }
 
+    /// Pushes staged changes to the remote repository.
+    ///
+    /// If the current branch does not have an upstream tracking branch, it attempts to set one up.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `()` if the push was successful, or a `GitError` if the push failed.
     pub fn push(&self) -> Result<(), GitError> {
          let output = Command::new("git")
             .arg("push")
@@ -125,6 +177,20 @@ impl GitRepo {
          Ok(())
     }
 
+    /// Retrieves commit history relevant for a Pull Request context.
+    ///
+    /// Fetches the latest changes for the specified `main_branch` from `origin` and then logs commits
+    /// between the `main_branch` on origin and the current `HEAD`. It aims to provide a concise
+    /// summary of recent commits that are not yet part of the main branch.
+    ///
+    /// # Arguments
+    ///
+    /// * `main_branch` - The name of the main branch (e.g., "main" or "master").
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `String` with the commit history formatted as "Commit: %h\nMessage: %s\nBody: %b\n---"
+    /// if successful, or a `GitError` if any Git command fails.
     pub fn get_pr_context(&self, main_branch: &str) -> Result<String, GitError> {
         // Fetch the latest from origin for the base branch to ensure context is up to date
         // Note: This is non-destructive to local branches.
@@ -162,6 +228,12 @@ impl GitRepo {
          Ok(String::from_utf8(output.stdout)?)
     }
 
+    /// Retrieves a list of files that have unstaged changes.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `Vec<String>` of unstaged file paths if successful,
+    /// or a `GitError` if the Git command fails.
     pub fn get_unstaged_files(&self) -> Result<Vec<String>, GitError> {
         // git diff --name-only
         let output = Command::new("git")
@@ -182,6 +254,16 @@ impl GitRepo {
         Ok(files)
     }
 
+    /// Stages the specified files for the next commit.
+    ///
+    /// # Arguments
+    ///
+    /// * `files` - A slice of strings, where each string is the path to a file to be staged.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `()` if the files were staged successfully, or a `GitError` if the operation failed.
+    /// If the `files` slice is empty, this function returns `Ok(())` immediately without executing any commands.
     pub fn stage_files(&self, files: &[String]) -> Result<(), GitError> {
         if files.is_empty() { return Ok(()); }
         
@@ -196,6 +278,12 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Gets the name of the current Git branch.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `String` with the current branch name if successful,
+    /// or a `GitError` if the command fails.
     pub fn get_current_branch(&self) -> Result<String, GitError> {
         let output = Command::new("git")
             .arg("rev-parse")
@@ -209,7 +297,14 @@ impl GitRepo {
          Ok(String::from_utf8(output.stdout)?.trim().to_string())
     }
 
-    // Returns (owner, repo_name)
+    /// Retrieves the owner and repository name from the 'origin' remote URL.
+    ///
+    /// Supports both HTTPS and SSH URL formats.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a tuple `(String, String)` representing the owner and repository name,
+    /// or a `GitError` if the remote URL cannot be fetched or parsed.
     pub fn get_remote_info(&self) -> Result<(String, String), GitError> {
         let output = Command::new("git")
             .arg("remote")
@@ -240,6 +335,19 @@ impl GitRepo {
          }
     }
 
+    /// Checks for merge conflicts between two references.
+    ///
+    /// This function uses `git merge-tree --write-tree` to determine if a merge would result in conflicts.
+    ///
+    /// # Arguments
+    ///
+    /// * `base` - The base reference (e.g., a branch name or commit hash).
+    /// * `head` - The head reference (e.g., a branch name or commit hash) to merge into the base.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `MergeResult` struct indicating the presence of conflicts and a list of conflicted files.
+    /// Returns a `GitError` if the `git merge-tree` command fails.
     pub fn check_merge_conflicts(&self, base: &str, head: &str) -> Result<MergeResult, GitError> {
         let mut cmd = Command::new("git");
         cmd.arg("merge-tree")
@@ -278,6 +386,14 @@ impl GitRepo {
         })
     }
 
+    /// Gets the most recent Git tag reachable from the current commit.
+    ///
+    /// If no tags are found, it returns `Ok(None)`.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an `Option<String>` with the latest tag name if found,
+    /// or `None` if no tags exist. Returns a `GitError` if the command fails for reasons other than no tags.
     pub fn get_last_tag(&self) -> Result<Option<String>, GitError> {
         let output = Command::new("git")
             .arg("describe")
@@ -293,6 +409,20 @@ impl GitRepo {
         }
     }
 
+    /// Gets a list of commits since a specified reference point.
+    ///
+    /// If no reference is provided, it lists all commits from the beginning of the repository history up to HEAD.
+    /// It excludes merge commits and formats the output as a list with commit subjects and short SHAs.
+    ///
+    /// # Arguments
+    ///
+    /// * `reference` - An `Option<&str>` representing the reference commit or branch to compare against.
+    ///                 If `None`, all commits are considered.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `String` with the formatted commit history if successful,
+    /// or a `GitError` if the Git command fails.
     pub fn get_commits_since_ref(&self, reference: Option<&str>) -> Result<String, GitError> {
         let mut cmd = Command::new("git");
         cmd.arg("log");
@@ -312,6 +442,14 @@ impl GitRepo {
         Ok(String::from_utf8(output.stdout)?)
     }
 
+    /// Lists all files tracked by Git in the repository.
+    ///
+    /// This is equivalent to running `git ls-files`.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `String` with a list of tracked file paths, one per line, if successful.
+    /// Returns a `GitError` if the Git command fails.
     pub fn get_repo_tree(&self) -> Result<String, GitError> {
         let output = Command::new("git")
             .arg("ls-files")
@@ -324,6 +462,12 @@ impl GitRepo {
         Ok(String::from_utf8(output.stdout)?)
     }
 
+    /// Retrieves a list of all local and remote branches.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `Vec<String>` of branch names if successful,
+    /// or a `GitError` if the Git command fails.
     pub fn get_branches(&self) -> Result<Vec<String>, GitError> {
         let output = Command::new("git")
             .arg("branch")
@@ -339,6 +483,16 @@ impl GitRepo {
         Ok(output_str.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
     }
 
+    /// Gets a list of branches that have been merged into a specified base branch.
+    ///
+    /// # Arguments
+    ///
+    /// * `base` - The name of the base branch to check against.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `Vec<String>` of merged branch names (excluding the base branch itself) if successful,
+    /// or a `GitError` if the Git command fails.
     pub fn get_merged_branches(&self, base: &str) -> Result<Vec<String>, GitError> {
         let output = Command::new("git")
             .arg("branch")
@@ -358,6 +512,19 @@ impl GitRepo {
             .collect())
     }
 
+    /// Retrieves a summary of the latest commits on a given branch compared to a base branch.
+    ///
+    /// This function fetches the last 5 commits from `branch` that are not in `base`.
+    ///
+    /// # Arguments
+    ///
+    /// * `branch` - The name of the branch to get the summary from.
+    /// * `base` - The name of the base branch to compare against.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `String` with the summarized commit information if successful,
+    /// or a `GitError` if the Git command fails.
     pub fn get_branch_summary(&self, branch: &str, base: &str) -> Result<String, GitError> {
         let output = Command::new("git")
             .arg("log")

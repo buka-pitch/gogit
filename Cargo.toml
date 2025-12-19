@@ -23,3 +23,10 @@ toml = "0.8"
 indicatif = "0.17"
 rascii_art = "0.4.5"
 viuer = { version = "0.11", features = ["print-file"] }
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Enable Link Time Optimization
+codegen-units = 1   # Better optimizations
+panic = "abort"    # Reduce binary size by removing unwinding info
+strip = true        # Strip symbols from the binary
