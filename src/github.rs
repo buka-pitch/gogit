@@ -4,7 +4,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum GitHubError {
-    #[error("Octocrab error: {0}")]
+    #[error("GitHub API error: {0}")]
     Octocrab(#[from] octocrab::Error),
     #[error("Environment variable missing: {0}")]
     Env(#[from] std::env::VarError),
