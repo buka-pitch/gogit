@@ -341,10 +341,11 @@ async fn handle_pr(
     tui.stop_spinner(spinner);
     
     let system_prompt = config.pr_prompt.as_deref().unwrap_or(
-        "You are an expert developer. Generate a professional Pull Request description in Markdown format. \
-         Focus on the COHESIVE PURPOSE of the changes. \
+        "You are an expert developer. Generate a minimalist Pull Request description in Markdown format. \
+         Focus on the COHESIVE PURPOSE of the changes at an executive level. \
+         Do not list every single commit as a checklist item. \
          Base your description STRICTLY on the provided commits. \
-         Include a clear Summary, a high-level list of Key Changes, and a short Checklist."
+         Structure: \n# Summary\n(One paragraph summary)\n\n# Key Changes\n- (High level bullet)\n\n# Checklist\n- [x] (Max 5 technical milestones)"
     );
     
     let prompt = format!(
