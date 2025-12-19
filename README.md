@@ -33,6 +33,12 @@ gogit is a command-line interface tool that integrates AI capabilities into your
 
 2. **Installation:**
    The recommended way to install `gogit` is using our installer script:
+   
+  **Build from Source:**
+    git clone https://github.com/buka-pitch/gogit.git
+    cd gogit
+    cargo build --release
+    The compiled binary will be located at `target/release/gogit`. You can then move this binary to your system's PATH for easy access.
 
    ```bash
    chmod +x install.sh
