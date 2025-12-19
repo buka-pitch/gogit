@@ -227,7 +227,20 @@ async fn handle_commit(
             }
         }
         
-        match tui.prompt_review(&full_msg)? {
+        // Strip Markdown code blocks if present
+        let clean_msg = if full_msg.trim().starts_with("```") {
+            full_msg.lines()
+                .skip(1) // Skip first line (``` or ```markdown)
+                .filter(|l| !l.trim().starts_with("```")) // Skip closing ```
+                .collect::<Vec<&str>>()
+                .join("\n")
+                .trim()
+                .to_string()
+        } else {
+            full_msg.trim().to_string()
+        };
+        
+        match tui.prompt_review(&clean_msg)? {
             tui::Action::Confirm(final_msg) => {
                 if let Some(args) = &hook_args {
                     // Hook Mode: Write to file
@@ -331,6 +344,19 @@ async fn handle_pr(
         }
     }
     
+    // Strip Markdown code blocks if present
+    let clean_msg = if full_msg.trim().starts_with("```") {
+        full_msg.lines()
+            .skip(1)
+            .filter(|l| !l.trim().starts_with("```"))
+            .collect::<Vec<&str>>()
+            .join("\n")
+            .trim()
+            .to_string()
+    } else {
+        full_msg.trim().to_string()
+    };
+
     if let Some(gh) = gh_client {
         println!("\n");
         if tui.prompt_yes_no("Create PR on GitHub?")? {
@@ -340,10 +366,10 @@ async fn handle_pr(
             
             // Extract a title from the body? Or ask user?
             // Simple heuristic: First line is title, rest is body.
-            let (title, body) = if let Some((t, b)) = full_msg.split_once('\n') {
+            let (title, body) = if let Some((t, b)) = clean_msg.split_once('\n') {
                 (t.trim().trim_start_matches("# ").to_string(), b.trim().to_string())
             } else {
-                ("Automated PR".to_string(), full_msg.clone())
+                ("Automated PR".to_string(), clean_msg.clone())
             };
             
             match gh.create_pr(&title, &body, &current_branch, base, &owner, &repo_name).await {
