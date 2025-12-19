@@ -21,6 +21,11 @@ pub struct GitRepo {
     repo: gix::Repository,
 }
 
+pub struct MergeResult {
+    pub has_conflicts: bool,
+    pub conflicted_files: Vec<String>,
+}
+
 impl GitRepo {
     pub fn open() -> Result<Self, GitError> {
         let repo = gix::discover(".")?;
@@ -121,16 +126,38 @@ impl GitRepo {
     }
 
     pub fn get_pr_context(&self, main_branch: &str) -> Result<String, GitError> {
-        // git log main..HEAD --no-merges --pretty=format:"%h %s%n%b"
+        // Fetch the latest from origin for the base branch to ensure context is up to date
+        // Note: This is non-destructive to local branches.
+        println!("Fetching latest from origin/{} for context...", main_branch);
+        let _ = Command::new("git")
+            .arg("fetch")
+            .arg("origin")
+            .arg(main_branch)
+            .status();
+
+        // Use origin/main_branch instead of local branch to avoid stale context
+        let base_ref = format!("origin/{}", main_branch);
+        
         let output = Command::new("git")
             .arg("log")
-            .arg(format!("{}..HEAD", main_branch))
+            .arg(format!("{}..HEAD", base_ref))
             .arg("--no-merges")
             .arg("--pretty=format:Commit: %h%nMessage: %s%nBody: %b%n---")
             .output()?;
 
         if !output.status.success() {
-             return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+             // Fallback to local if origin doesn't exist/fails
+             let output_local = Command::new("git")
+                .arg("log")
+                .arg(format!("{}..HEAD", main_branch))
+                .arg("--no-merges")
+                .arg("--pretty=format:Commit: %h%nMessage: %s%nBody: %b%n---")
+                .output()?;
+
+             if !output_local.status.success() {
+                 return Err(GitError::Cmd(String::from_utf8_lossy(&output_local.stderr).to_string()));
+             }
+             return Ok(String::from_utf8(output_local.stdout)?);
          }
          Ok(String::from_utf8(output.stdout)?)
     }
@@ -211,5 +238,43 @@ impl GitRepo {
          } else {
              Err(GitError::Cmd("Could not parse remote url".to_string()))
          }
+    }
+
+    pub fn check_merge_conflicts(&self, base: &str, head: &str) -> Result<MergeResult, GitError> {
+        let mut cmd = Command::new("git");
+        cmd.arg("merge-tree")
+           .arg("--write-tree")
+           .arg(base)
+           .arg(head);
+
+        let output = cmd.output()?;
+        
+        let has_conflicts = match output.status.code() {
+            Some(0) => false,
+            Some(1) => true,
+            _ => return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string())),
+        };
+
+        let mut conflicted_files = Vec::new();
+        if has_conflicts {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    if parts[2] == "1" || parts[2] == "2" || parts[2] == "3" {
+                        let path = parts[3].to_string();
+                        if !conflicted_files.contains(&path) {
+                            conflicted_files.push(path);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(MergeResult {
+            has_conflicts,
+            conflicted_files,
+        })
     }
 }

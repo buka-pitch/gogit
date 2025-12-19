@@ -50,6 +50,12 @@ enum Commands {
     },
     /// Generate project documentation
     Doc,
+    /// Check for merge conflicts
+    Check {
+        /// Base branch to check against (default: main)
+        #[arg(long, default_value = "main")]
+        base: String,
+    },
     /// Manage git hooks
     Hook {
         #[command(subcommand)]
@@ -90,41 +96,66 @@ async fn show_main_menu() {
     // Clear screen
     print!("\x1B[2J\x1B[1;1H");
     
-    // BIG ASCII Art Logo (Centered)
-    println!("{}", r#"
-      ____  ____  ____  ___ ____ 
-     / ___|/ _ \| ___||_ _|_   _|
-    | |  _| | | | |  _ | |  | |  
-    | |_| | |_| | |_| || |  | |  
-     \____|\___/ \____|___| |_|   
-    "#.green().bold());
-    println!("{}", "           AI-POWERED GIT COMPANION           ".black().on_green());
+    // Attempt to render the actual image using viuer
+    let viuer_config = viuer::Config {
+        width: Some(80),
+        transparent: true,
+        ..Default::default()
+    };
+
+    if let Err(_) = viuer::print_from_file("img1.png", &viuer_config) {
+        // Fallback 1: Dynamic ASCII Art
+        let mut logo = String::new();
+        let ascii_options = rascii_art::RenderOptions {
+            width: Some(80),
+            colored: true,
+            ..Default::default()
+        };
+
+        if let Err(_) = rascii_art::render_to("img1.png", &mut logo, &ascii_options) {
+            // Fallback 2: Manual ASCII Art
+            println!("{}", "  ________  ________  ________  ___  _________   ".green().bold());
+            println!("{}", r#" |\   ____\|\   __  \|\   ____\|\  \|\___   ___\ "#.green().bold());
+            println!("{}", r#" \ \  \___|\ \  \ \  \ \  \___| \  \|___ \  \_| "#.cyan().bold());
+            println!("{}", r#"  \ \  \  __\ \  \ \  \ \  \  __\ \  \   \ \  \  "#.cyan().bold());
+            println!("{}", r#"   \ \  \|\  \ \  \_\  \ \  \|\  \ \  \   \ \  \ "#.blue().bold());
+            println!("{}", r#"    \ \_______\ \_______\ \_______\ \__\   \ \__\"#.blue().bold());
+            println!("{}", r"     \|_______|\|_______|\|_______|\|__|    \|__|".magenta().bold());
+        } else {
+            println!("{}", logo);
+        }
+    }
+    println!();
+    println!("{}", "             ✨ AI-POWERED GIT COMPANION ✨           ".black().on_green());
     println!();
 
     let choices = vec![
-        "✨ AI Commit     (Generate & Commit)",
-        "🚀 Create PR     (Draft & Support)",
-        "🕵️  Code Review   (Find Bugs & Issues)",
-        "🛠️  AI Fix        (Refactor/Fix File)",
-        "🔍 Search History (Natural Language Search)",
-        "📑 Generate Doc   (Update README.md)",
-        "🪝  Install Hook  (Auto-run on git commit)",
-        "🗑️  Remove Hook   (Restore native git)",
+        "✨ AI Commit      - Generate & commit smart messages",
+        "🚀 Create PR      - Effortless pull request creation",
+        "🕵️ Code Review    - Find bugs and security issues",
+        "🛠️ AI Fix         - Let AI refactor or fix files",
+        "🔍 Search History - Natural language commit search",
+        "📑 Generate Doc    - Update your project README",
+        "⚔️ Check Conflicts - Dry-run merge check",
+        "🪝 Install Hook   - Auto-run on every commit",
+        "🗑️ Remove Hook    - Restore native git behavior",
         "🚪 Exit",
     ];
 
     use dialoguer::{Select, theme::ColorfulTheme};
     let theme = ColorfulTheme {
         active_item_style: dialoguer::console::Style::new().green().bold(),
+        inactive_item_style: dialoguer::console::Style::new().dim(),
+        prompt_style: dialoguer::console::Style::new().cyan().bold(),
         ..ColorfulTheme::default()
     };
 
     let selection = Select::with_theme(&theme)
-        .with_prompt("Select an operation:")
+        .with_prompt("Choose your next action:")
         .default(0)
         .items(&choices)
         .interact()
-        .unwrap_or(5); // Default to Exit on error
+        .unwrap_or(9); // Default to Exit on error
 
     match selection {
         0 => run_wrapper(Commands::Commit { args: vec![] }).await,
@@ -140,8 +171,16 @@ async fn show_main_menu() {
              run_wrapper(Commands::Search { query: q }).await;
         },
         5 => run_wrapper(Commands::Doc).await,
-        6 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
-        7 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
+        6 => {
+            let base: String = dialoguer::Input::new()
+                .with_prompt("Base branch to check against")
+                .default("main".to_string())
+                .interact_text()
+                .unwrap();
+            run_wrapper(Commands::Check { base }).await;
+        },
+        7 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
+        8 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
         _ => println!("{}", "Bye!".cyan()),
     }
 }
@@ -170,7 +209,8 @@ async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Review => review::Reviewer::run(&tui, &ai, &repo).await?,
         Commands::Fix { file, instruction } => refactor::Refactorer::run(&tui, &ai, &file, &instruction).await?,
         Commands::Search { query } => search::HistorySearcher::run(&tui, &ai, &repo, &query).await?,
-        Commands::Doc => doc::DocGenerator::run_menu(&tui, &ai).await?,
+        Commands::Doc => doc::DocGenerator::run_menu(&tui, &ai, &repo).await?,
+        Commands::Check { base } => handle_check_conflicts(&repo, &tui, &base).await?,
         Commands::Hook { action } => match action {
             HookAction::Install => hook::HookManager::install()?,
             HookAction::Uninstall => hook::HookManager::uninstall()?,
@@ -460,5 +500,31 @@ async fn handle_pr(
         }
     }
 
+    Ok(())
+}
+
+async fn handle_check_conflicts(
+    repo: &git::GitRepo,
+    tui: &tui::Tui,
+    base: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let current_branch = repo.get_current_branch()?;
+    
+    let spinner = tui.start_thinking(&format!("Checking for conflicts between {} and {}...", base, current_branch));
+    let result = repo.check_merge_conflicts(base, &current_branch)?;
+    tui.stop_spinner(spinner);
+    
+    if result.has_conflicts {
+        println!("\n{}", "✖ MERGE CONFLICTS DETECTED".red().bold());
+        println!("Merging {} into {} would result in conflicts in the following files:", current_branch, base);
+        for file in &result.conflicted_files {
+            println!("  - {}", file.clone().yellow());
+        }
+        println!("\n{}", "Tip: You'll need to resolve these manually before pushing.".dim());
+    } else {
+        println!("\n{}", "✔ CLEAN MERGE".green().bold());
+        println!("Merging {} into {} would be conflict-free.", current_branch, base);
+    }
+    
     Ok(())
 }

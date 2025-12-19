@@ -148,6 +148,12 @@ impl GeminiClient {
              "system_instruction": {
                 "parts": [{ "text": system_instruction }]
             },
+            "safetySettings": [
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH" }
+            ]
         });
 
         // Retry logic for 429
@@ -169,10 +175,20 @@ impl GeminiClient {
             }
 
             let json: serde_json::Value = resp.json().await?;
+            
             if let Some(text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
                 return Ok(text.to_string());
+            } else if let Some(error) = json.get("error") {
+                let msg = error["message"].as_str().unwrap_or("Unknown API error");
+                return Err(AiError::Stream(format!("Gemini API Error: {}", msg)));
+            } else if let Some(candidates) = json.get("candidates") {
+                if !candidates.as_array().map_or(false, |a| !a.is_empty()) {
+                    return Err(AiError::Stream("Gemini returned no candidates. This usually means the prompt was blocked by safety filters.".to_string()));
+                }
+                let finish_reason = candidates[0].get("finishReason").and_then(|v| v.as_str()).unwrap_or("UNKNOWN");
+                return Err(AiError::Stream(format!("Gemini failed to generate text. Finish reason: {}", finish_reason)));
             } else {
-                return Ok(String::new());
+                return Err(AiError::Stream(format!("Unexpected JSON response from Gemini: {}", json)));
             }
         }
     }
