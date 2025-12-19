@@ -31,7 +31,7 @@ gogit is a command-line interface tool that integrates AI capabilities into your
     - An API key for the AI model provider (e.g., Gemini). Set the environment variable `GEMINI_API_KEY`.
 
 2.  **Build from Source:**
-    git clone https://github.com/your-username/gogit.git
+    git clone https://github.com/buka-pitch/gogit.git
     cd gogit
     cargo build --release
     The compiled binary will be located at `target/release/gogit`. You can then move this binary to your system's PATH for easy access.
