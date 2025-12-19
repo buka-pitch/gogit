@@ -394,8 +394,6 @@ async fn handle_pr(
             let current_branch = repo.get_current_branch()?;
             let (owner, repo_name) = repo.get_remote_info()?;
             
-            // Extract a title from the body? Or ask user?
-            // Simple heuristic: First line is title, rest is body.
             let (title, body) = if let Some((t, b)) = clean_msg.split_once('\n') {
                 (t.trim().trim_start_matches("# ").to_string(), b.trim().to_string())
             } else {
@@ -405,7 +403,7 @@ async fn handle_pr(
             match gh.create_pr(&title, &body, &current_branch, base, &owner, &repo_name).await {
                 Ok(url) => {
                     tui.stop_spinner(spinner);
-                    println!("\n{} {}", "✔ PR Created:".green().bold(), url);
+                    println!("\n{} PR Created: {}", "✔".green().bold(), url.cyan());
                 }
                 Err(e) => {
                     tui.stop_spinner(spinner);
@@ -414,7 +412,45 @@ async fn handle_pr(
             }
         }
     } else {
-        println!("\n\n(GitHub token not found. Set GITHUB_TOKEN to enable auto-submission)");
+        println!("\n{} GitHub token not found (env: GITHUB_TOKEN missing).", "ℹ".blue());
+        if tui.prompt_yes_no("Try submitting PR via GitHub CLI ('gh pr create') instead?")? {
+             let current_branch = repo.get_current_branch()?;
+             let (title, body) = if let Some((t, b)) = clean_msg.split_once('\n') {
+                (t.trim().trim_start_matches("# ").to_string(), b.trim().to_string())
+            } else {
+                ("Automated PR".to_string(), clean_msg.clone())
+            };
+
+            let spinner = tui.start_thinking("Calling GitHub CLI...");
+            let output = std::process::Command::new("gh")
+                .arg("pr")
+                .arg("create")
+                .arg("--title")
+                .arg(&title)
+                .arg("--body")
+                .arg(&body)
+                .arg("--base")
+                .arg(base)
+                .arg("--head")
+                .arg(&current_branch)
+                .output();
+            
+            tui.stop_spinner(spinner);
+
+            match output {
+                Ok(out) if out.status.success() => {
+                    let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    println!("\n{} PR Created: {}", "✔".green().bold(), url.cyan());
+                }
+                Ok(out) => {
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    eprintln!("\n{} CLI error: {}", "✖ Failed:".red().bold(), err);
+                }
+                Err(e) => {
+                    eprintln!("\n{} Could not run 'gh' command: {}", "✖ Error:".red().bold(), e);
+                }
+            }
+        }
     }
 
     Ok(())

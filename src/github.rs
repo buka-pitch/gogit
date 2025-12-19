@@ -18,7 +18,26 @@ pub struct GitHub {
 
 impl GitHub {
     pub fn new() -> Result<Self, GitHubError> {
-        let token = env::var("GITHUB_TOKEN").or_else(|_| env::var("GH_TOKEN"))?;
+        let token = env::var("GITHUB_TOKEN")
+            .or_else(|_| env::var("GH_TOKEN"))
+            .or_else(|_| {
+                // Try fetching token from GitHub CLI (gh)
+                let output = std::process::Command::new("gh")
+                    .arg("auth")
+                    .arg("token")
+                    .output();
+                
+                match output {
+                    Ok(out) if out.status.success() => {
+                        let t = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        if !t.is_empty() {
+                            return Ok(t);
+                        }
+                    }
+                    _ => {}
+                }
+                Err(std::env::VarError::NotPresent)
+            })?;
         
         let client = Octocrab::builder()
             .personal_token(token)
