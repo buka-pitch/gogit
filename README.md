@@ -114,13 +114,4 @@ model = "gemini-2.5-flash-lite"
 commit_prompt = "Generate a concise commit message summarizing these changes."
 pr_prompt = "Create a detailed PR description highlighting the problem and solution."
 
-
-### Improvements Made:
-1.  **Fixed Video Typo:** Changed `.wp4` to `.webm`.
-2.  **Centered the Video:** Wrapped the video in a `<p align="center">` tag to match your logo and cover image.
-3.  **Added Code Blocks:** Put your terminal commands into backtick blocks (`` ```bash ``) so they are copy-pasteable and highlighted correctly.
-4.  **Cleaner Hierarchy:** Used horizontal rules (`---`) to separate major sections, making the README much easier to scan.
-5.  **Removed `object-fit` from HTML:** `object-fit` isn't standard in GitHub Markdown HTML tags, so I removed it to keep the code clean.
-
-**Would you like me to create a "Quick Start" table for the commands to make it even more readable?**
 ```
