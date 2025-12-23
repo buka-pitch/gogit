@@ -10,8 +10,9 @@ pub enum Action {
     Edit,
 }
 
+#[derive(Clone)]
 pub struct Tui {
-    spinner: Option<ProgressBar>,
+    pub spinner: Option<ProgressBar>,
 }
 
 impl Tui {

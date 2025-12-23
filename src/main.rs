@@ -8,6 +8,8 @@ mod hook;
 mod refactor;
 mod search;
 mod doc;
+mod agent;
+mod tools;
 mod assets;
 
 use clap::{Parser, Subcommand};
@@ -87,6 +89,11 @@ enum Commands {
     Stale,
     /// List and select from available free AI models
     Models,
+    /// Start an interactive AI agent chat with tool support
+    Chat {
+        /// Initial query for the agent
+        query: Option<String>,
+    },
     /// Install or uninstall automated Git hooks
     Hook {
         #[command(subcommand)]
@@ -131,9 +138,6 @@ async fn show_main_menu() {
     println!();
     println!("{}", "             ✨ AI-POWERED GIT COMPANION ✨           ".black().on_green());
     println!();
-    println!();
-    println!("{}", "             ✨ AI-POWERED GIT COMPANION ✨           ".black().on_green());
-    println!();
 
     let choices = vec![
         "✨ AI Commit      - Generate & commit smart messages",
@@ -149,6 +153,7 @@ async fn show_main_menu() {
         "🗺️ Repo Navigator - AI answers about the code",
         "🧹 Stale Branches - Intelligent branch cleanup",
         "🎯 Choose Model   - Browse free AI models",
+        "🤖 AI Agent Chat  - Chat with tools (web, files)",
         "🪝 Install Hook   - Auto-run on every commit",
         "🗑️ Remove Hook    - Restore native git behavior",
         "🚪 Exit",
@@ -167,7 +172,7 @@ async fn show_main_menu() {
         .default(0)
         .items(&choices)
         .interact()
-        .unwrap_or(15); // Default to Exit on error
+        .unwrap_or(16); // Default to Exit on error
 
     match selection {
         0 => run_wrapper(Commands::Commit { args: vec![] }).await,
@@ -215,8 +220,9 @@ async fn show_main_menu() {
         },
         11 => run_wrapper(Commands::Stale).await,
         12 => run_wrapper(Commands::Models).await,
-        13 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
-        14 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
+        13 => run_wrapper(Commands::Chat { query: None }).await,
+        14 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
+        15 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
         _ => println!("{}", "Bye!".cyan()),
     }
 }
@@ -231,7 +237,12 @@ async fn run_wrapper(cmd: Commands) {
 async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load();
     let repo = git::GitRepo::open()?;
-    let ai = ai::AiClient::new(config.model.clone())?;
+    let ai = ai::AiClient::new(
+        config.model.clone(), 
+        &config.provider,
+        config.api_key.clone(),
+        config.gemini_api_key.clone()
+    )?;
     let tui = tui::Tui::new();
     
     let github = github::GitHub::new().ok();
@@ -253,6 +264,7 @@ async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Explain { question } => handle_explain(&repo, &ai, &tui, question).await?,
         Commands::Stale => handle_stale_branches(&repo, &ai, &tui).await?,
         Commands::Models => handle_models(&ai, &tui, &config).await?,
+        Commands::Chat { query } => handle_chat(&ai, &tui, query).await?,
         Commands::Hook { action } => match action {
             HookAction::Install => hook::HookManager::install()?,
             HookAction::Uninstall => hook::HookManager::uninstall()?,
@@ -890,6 +902,9 @@ async fn handle_models(
     };
 
     let mut items = Vec::new();
+    items.push(format!("{} (currently using {})", "🔄 Switch Provider".yellow().bold(), config.provider.clone().cyan()));
+    items.push("---------------------------------".dim().to_string());
+
     for m in &models {
         let name = m.name.as_deref().unwrap_or("Unknown");
         let context = m.context_length.map(|c| format!("{}k", c / 1024)).unwrap_or_else(|| "?".to_string());
@@ -903,7 +918,33 @@ async fn handle_models(
         .interact_opt()?;
 
     if let Some(index) = selection {
-        let selected = &models[index];
+        if index == 0 {
+            // Switch Provider
+            let providers = vec!["OpenRouter", "Native Gemini"];
+            let p_index = Select::with_theme(&theme)
+                .with_prompt("Choose AI Provider:")
+                .default(if config.provider == "openrouter" { 0 } else { 1 })
+                .items(&providers)
+                .interact()?;
+            
+            let mut new_config = config.clone();
+            new_config.provider = if p_index == 0 { "openrouter".to_string() } else { "gemini".to_string() };
+            
+            // Set a sensible default model for the new provider
+            if new_config.provider == "gemini" {
+                new_config.model = "gemini-2.0-flash-exp".to_string();
+            } else {
+                new_config.model = "openai/gpt-4o-mini".to_string();
+            }
+            
+            new_config.save()?;
+            println!("\n{} Provider switched to: {}", "✔".green().bold(), if p_index == 0 { "OpenRouter" } else { "Gemini" }.cyan());
+            return Ok(());
+        }
+
+        if index <= 1 { return Ok(()); } // Header or separator
+
+        let selected = &models[index - 2];
         let mut new_config = config.clone();
         new_config.model = selected.id.clone();
         new_config.save()?;
@@ -914,4 +955,41 @@ async fn handle_models(
 
     Ok(())
 }
+
+async fn handle_chat(
+    ai: &ai::AiClient,
+    tui: &tui::Tui,
+    initial_query: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let system_prompt = "You are an AI-powered git companion and coding agent. \
+        You help developers manage their projects, solve bugs, and find information. \
+        You have tools to read/write files, list directories, search the web, and run shell commands. \
+        Always focus on code quality and security. \
+        Be concise and helpful.";
+    
+    let mut agent = agent::Agent::new(ai.clone(), tui.clone(), system_prompt);
+
+    if let Some(query) = initial_query {
+        agent.chat(&query).await?;
+    }
+
+    loop {
+        let input: String = dialoguer::Input::new()
+            .with_prompt("You")
+            .interact_text()?;
+
+        if input.to_lowercase() == "exit" || input.to_lowercase() == "quit" {
+            break;
+        }
+
+        if input.trim().is_empty() {
+            continue;
+        }
+
+        agent.chat(&input).await?;
+    }
+
+    Ok(())
+}
+
 

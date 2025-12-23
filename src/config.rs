@@ -5,7 +5,9 @@ use std::path::PathBuf;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub model: String,
+    pub provider: String,
     pub api_key: Option<String>,
+    pub gemini_api_key: Option<String>,
     pub commit_prompt: Option<String>,
     pub pr_prompt: Option<String>,
 }
@@ -13,8 +15,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            model: "openai/gpt-4o-mini".to_string(),
+            model: "gemini-3-flash-preview".to_string(),
+            provider: "gemini".to_string(),
             api_key: None,
+            gemini_api_key: None,
             commit_prompt: None,
             pr_prompt: None,
         }

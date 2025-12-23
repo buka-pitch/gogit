@@ -12,17 +12,51 @@ gogit is a command-line interface tool that integrates AI capabilities into your
 
 ## ✨ Key Features
 
-- **✨ AI Commit**: Generate and commit smart, descriptive commit messages automatically.
-- **🚀 AI Pull Request**: Create detailed PR descriptions with summaries and key changes.
-- **🕵️ AI Code Review**: Receive architectural and security-focused feedback on your changes.
-- **🛠️ AI Fix**: Precision AI refactoring and bug fixing based on your instructions.
-- **🔍 AI Search**: Semantic search through your git history using natural language.
-- **📑 AI Documentation**: Automatically generate and update your project README.
-- **⚔️ AI Conflict Resolution**: Let AI help you resolve complex merge conflicts intelligently.
-- **🌱 AI Smart Branch**: Create new branches with contextually relevant, AI-suggested names.
-- **🏷️ AI NL Alias**: Translate English requests into powerful Git commands/aliases.
-- **👥 Team Power-Ups**: Generate professional release notes, navigate the repository, and analyze stale branches.
-- **🎯 AI Model Browser**: Browse and select from 25+ free AI models via OpenRouter.
+- **🤖 AI Agent Chat**: Interactive chat mode with tool support (web search, file read/write, shell execution).
+- **🎯 AI Model Browser**: Easily browse and switch between dozens of free OpenRouter models.
+- **✨ AI Commit**: Generate meaningful commit messages from your staged changes.
+- **🚀 Smart PRs**: Automatically generate pull request descriptions.
+- **🕵️ Code Review**: Get AI-powered feedback on your code changes.
+- **🛠️ AI Refactor**: Precision refactoring using natural language.
+- **🔍 Semantic Search**: Search your git history using natural language.
+- **📑 Document Generator**: Keep your README and documentation up to date.
+- **🗺️ Repo Navigator**: Ask questions about your codebase.
+- **Sweep and Cleanup**: Identify and remove stale branches.
+
+## 🚀 Getting Started
+
+1. **Install**:
+
+   ```bash
+   chmod +x install.sh
+   ./install.sh
+   ```
+
+2. **Setup OpenRouter**:
+
+   - Get an API key from [openrouter.ai](https://openrouter.ai/).
+   - Set `OPENROUTER_API_KEY` in your environment or `.env` file.
+   - (Optional) Get a **Native Gemini Key** from [Google AI Studio](https://aistudio.google.com/) and set `GEMINI_API_KEY` for 100% reliable tool use.
+   - (Optional) Set `TAVILY_API_KEY` for better web search in chat mode.
+
+3. **Configure**:
+   ```bash
+   gogit models # Select your preferred AI model
+   ```
+
+## 🤖 AI Agent Chat
+
+The new `gogit chat` command puts a powerful autonomous agent at your fingertips.
+
+- **📂 File Registry**: `read_file`, `write_file`, `list_directory`, `get_file_tree`.
+- **⚙️ Git Integration**: `git_status`, `git_diff`, `git_add`, `git_commit`, `git_log`, `git_branch`.
+- **🔍 Smart Search**: `search_code`, `web_search` (Tavily/DDG).
+- **🌐 Documentation**: `read_url` (direct URL extraction).
+- **💻 Safe Execution**: `run_command`, `git_commit` (requires interactive approval).
+
+```bash
+gogit chat "Explain the project structure and suggest improvements"
+```
 
 ## Installation
 
