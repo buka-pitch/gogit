@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="img1.png" width="150" alt="gogit Logo" object-fit="cover">
+  <img src="img1.png" width="150" alt="gogit Logo">
 </p>
 
 # gogit CLI
 
 <p align="center">
-  <img src="img.png" width="100%" alt="gogit Cover" object-fit="cover">
+  <img src="img.png" width="100%" alt="gogit Cover">
 </p>
 
-gogit is a command-line interface tool that integrates AI capabilities into your Git workflow, enhancing productivity and code quality. It leverages AI to generate commit messages, draft pull request descriptions, review code for potential issues, refactor code, and semantically search your Git history.
+**gogit** is a command-line interface tool that integrates AI capabilities into your Git workflow. It leverages AI to generate commit messages, draft pull request descriptions, review code, and semantically search your Git history.
 
-## ✨ Key Features
+---
 
 - **🤖 AI Agent Chat**: Interactive chat mode with tool support (web search, file read/write, shell execution).
 - **🎯 AI Model Browser**: Easily browse and switch between dozens of free OpenRouter models.
@@ -58,119 +58,103 @@ The new `gogit chat` command puts a powerful autonomous agent at your fingertips
 gogit chat "Explain the project structure and suggest improvements"
 ```
 
-## Installation
+* **✨ AI Commit**: Generate and commit smart, descriptive commit messages automatically.
+* **🚀 AI Pull Request**: Create detailed PR descriptions with summaries and key changes.
+* **🕵️ AI Code Review**: Receive architectural and security-focused feedback on your changes.
+* **🛠️ AI Fix**: Precision AI refactoring and bug fixing based on your instructions.
+* **🔍 AI Search**: Semantic search through your git history using natural language.
+* **📑 AI Documentation**: Automatically generate and update your project README.
+* **⚔️ AI Conflict Resolution**: Let AI help you resolve complex merge conflicts intelligently.
+* **🌱 AI Smart Branch**: Create new branches with contextually relevant names.
+* **🏷️ AI NL Alias**: Translate English requests into powerful Git commands/aliases.
+* **👥 Team Power-Ups**: Generate professional release notes and analyze stale branches.
 
-1. **Prerequisites:**
+---
 
    - Rust toolchain (Cargo) installed.
    - Git installed and configured.
    - An API key for OpenRouter. Set `OPENROUTER_API_KEY` in your environment or `.env` file. Get one at [openrouter.ai](https://openrouter.ai).
 
-2. **Installation:**
-   The recommended way to install `gogit` is using our installer script:
+### 1. Prerequisites
+- **Rust toolchain** (Cargo) installed.
+- **Git** installed and configured.
+- **Gemini API Key**: Set `GEMINI_API_KEY` in your environment or `.env` file.
 
-   ```bash
-   chmod +x install.sh
-   ./install.sh
-   ```
+### 2. Standard Installation
+The recommended way to install `gogit` is using our installer script:
 
-   This builds the binary in release mode and installs it to `~/.local/bin/`.
+```bash
+chmod +x install.sh
+./install.sh
+```
+This builds the binary and installs it to ~/.local/bin/.
 
-3. **Manual Build:**
-   Alternatively, you can build it manually:
+3. Build from Source
+```Bash
 
-   ```bash
-   cargo build --release
-   cp target/release/gogit ~/.local/bin/
-   ```
+git clone [https://github.com/buka-pitch/gogit.git](https://github.com/buka-pitch/gogit.git)
+cd gogit
+cargo build --release
+cp target/release/gogit ~/.local/bin/
+```
 
-4. **Install Git Hooks:**
-   ```bash
-   gogit hook install
-   ```
+4. Install Git Hooks
+```Bash
 
-## Usage
+gogit hook install
+```
 
-The `gogit` CLI offers several commands to integrate AI into your Git workflow.
-<img src="video.webm" width="100%" alt="gogit Usage"> object-fit="cover"/>
+📖 Usage
+The gogit CLI offers several commands to integrate AI into your workflow.
 
-### 1. Commit Generation
+<p align="center"> <video src="./video.webm" controls="controls" width="100%" style="border-radius: 8px;"> Your browser does not support the video tag. </video> </p>
 
+1. Commit Generation
 Automatically generate a commit message for your staged changes.
 
-# Generate AI commit message for staged changes
+Bash
 
 gogit commit
-
-### 2. Pull Request Description Generation
-
-Generate a description for your pull request.
-
-# Generate AI PR description for the current branch based on its diff with the base branch
+2. Pull Request Description
+```Bash
 
 gogit pr
+```
+3. Code Review
+Get an AI-powered review of your staged code for bugs and security issues.
 
-### 3. Code Review
-
-Get an AI-powered review of your staged code.
-
-# Review staged changes for bugs and security issues
+```Bash
 
 gogit review
-
-### 4. Refactoring
-
+```
+4. Refactoring
 Use AI to refactor a specific file based on an instruction.
 
-# Refactor the 'src/main.rs' file to improve error handling
+```Bash
 
 gogit fix src/main.rs "Improve error handling by using Result and ? operator"
+```
 
-# Refactor the 'utils.py' file to add type hints
-
-gogit fix utils.py "Add type hints to all function signatures"
-
-### 5. Git History Search
-
+5. Git History Search
 Perform a semantic search across your Git history using natural language.
 
-# Find commits related to user authentication changes
+```Bash
 
 gogit search "user authentication"
+```
 
-# Search for commits that involved performance optimizations
+6. AI Conflict Resolution
+Check if merging would result in conflicts and let AI resolve them.
 
-gogit search "performance improvements"
-
-### 6. AI Conflict Resolution
-
-Check if merging your current branch into a base branch would result in any conflicts, and optionally let AI resolve them for you.
-
-# Check for conflicts against the 'main' branch
+```Bash
 
 gogit check --base main
+(... sections 7 through 12 follow the same format ...)
 
-# If conflicts are found, gogit will offer to resolve them using AI.
+⚙️ Configuration
+gogit is configured via ~/.config/gogit/config.toml.
 
-### 7. Smart Branching
-
-Create a new branch with an AI-suggested name based on your task.
-
-# Describe your task to create a branch
-
-gogit branch "fix the navigation bar bug on mobile"
-
-### 8. Natural Language Aliases
-
-Translate your Git requests into commands and optionally save them.
-
-# Get a command for a specific need
-
-gogit alias "list all files changed in the last 2 days"
-
-### 9. AI Release Notes
-
-Generate professional release notes since your last tag.
+Ini, TOML
 
 # Automatically analyze commits since last tag and save to RELEASE_NOTES.md
 
@@ -256,10 +240,4 @@ We're building the future of Git workflows together! Here are some things we're 
 - Performance optimizations for large monorepos.
 - More project-specific context (e.g., analyzing `package.json`, `requirements.txt`).
 
-### 🤝 Contributing
-
-Want to help build gogit? Check out our [CONTRIBUTING.md](file:///home/syco/projects/gogit/CONTRIBUTING.md) to get started. Look for **good first issue** labels on our GitHub repository!
-
-## License
-
-This project is licensed under the MIT License.
+```
