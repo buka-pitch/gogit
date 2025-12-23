@@ -1,4 +1,4 @@
-use crate::ai::GeminiClient;
+use crate::ai::AiClient;
 use crate::git::GitRepo;
 use crate::tui::Tui;
 use crossterm::style::Stylize;
@@ -9,7 +9,7 @@ pub struct HistorySearcher;
 impl HistorySearcher {
     pub async fn run(
         tui: &Tui,
-        ai: &GeminiClient,
+        ai: &AiClient,
         _repo: &GitRepo,
         query: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {

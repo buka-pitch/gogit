@@ -1,4 +1,4 @@
-use crate::ai::GeminiClient;
+use crate::ai::AiClient;
 use crate::tui::Tui;
 use crate::git::GitRepo;
 use std::fs;
@@ -10,7 +10,7 @@ pub struct DocGenerator;
 impl DocGenerator {
     pub async fn run_readme(
         tui: &Tui,
-        ai: &GeminiClient,
+        ai: &AiClient,
         repo: &GitRepo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let readme_path = Path::new("README.md");
@@ -132,7 +132,7 @@ impl DocGenerator {
 
     pub async fn run_comments(
         tui: &Tui,
-        ai: &GeminiClient,
+        ai: &AiClient,
         file_path: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let path = Path::new(file_path);
@@ -175,7 +175,7 @@ impl DocGenerator {
 
     pub async fn run_menu(
         tui: &Tui,
-        ai: &GeminiClient,
+        ai: &AiClient,
         repo: &GitRepo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let options = vec![

@@ -85,6 +85,8 @@ enum Commands {
     },
     /// Intelligent analysis of stale or redundant branches
     Stale,
+    /// List and select from available free AI models
+    Models,
     /// Install or uninstall automated Git hooks
     Hook {
         #[command(subcommand)]
@@ -146,6 +148,7 @@ async fn show_main_menu() {
         "📋 Release Notes  - AI Categorized changelog",
         "🗺️ Repo Navigator - AI answers about the code",
         "🧹 Stale Branches - Intelligent branch cleanup",
+        "🎯 Choose Model   - Browse free AI models",
         "🪝 Install Hook   - Auto-run on every commit",
         "🗑️ Remove Hook    - Restore native git behavior",
         "🚪 Exit",
@@ -164,7 +167,7 @@ async fn show_main_menu() {
         .default(0)
         .items(&choices)
         .interact()
-        .unwrap_or(14); // Default to Exit on error
+        .unwrap_or(15); // Default to Exit on error
 
     match selection {
         0 => run_wrapper(Commands::Commit { args: vec![] }).await,
@@ -211,8 +214,9 @@ async fn show_main_menu() {
             run_wrapper(Commands::Explain { question: Some(q) }).await;
         },
         11 => run_wrapper(Commands::Stale).await,
-        12 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
-        13 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
+        12 => run_wrapper(Commands::Models).await,
+        13 => run_wrapper(Commands::Hook { action: HookAction::Install }).await,
+        14 => run_wrapper(Commands::Hook { action: HookAction::Uninstall }).await,
         _ => println!("{}", "Bye!".cyan()),
     }
 }
@@ -227,7 +231,7 @@ async fn run_wrapper(cmd: Commands) {
 async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load();
     let repo = git::GitRepo::open()?;
-    let ai = ai::GeminiClient::new(config.model.clone())?;
+    let ai = ai::AiClient::new(config.model.clone())?;
     let tui = tui::Tui::new();
     
     let github = github::GitHub::new().ok();
@@ -248,6 +252,7 @@ async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Release { from } => handle_release_notes(&repo, &ai, &tui, from).await?,
         Commands::Explain { question } => handle_explain(&repo, &ai, &tui, question).await?,
         Commands::Stale => handle_stale_branches(&repo, &ai, &tui).await?,
+        Commands::Models => handle_models(&ai, &tui, &config).await?,
         Commands::Hook { action } => match action {
             HookAction::Install => hook::HookManager::install()?,
             HookAction::Uninstall => hook::HookManager::uninstall()?,
@@ -258,7 +263,7 @@ async fn run(command: Commands) -> Result<(), Box<dyn std::error::Error>> {
 
 async fn handle_commit(
     repo: &git::GitRepo,
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
     config: &config::Config,
     hook_args: Option<Vec<String>>,
@@ -407,7 +412,7 @@ async fn handle_commit(
 
 async fn handle_pr(
     repo: &git::GitRepo,
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
     config: &config::Config,
     gh_client: Option<&github::GitHub>,
@@ -549,7 +554,7 @@ async fn handle_pr(
 
 async fn handle_check_conflicts(
     repo: &git::GitRepo,
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
     base: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -585,7 +590,7 @@ async fn handle_check_conflicts(
 
 async fn resolve_conflicts_interactive(
     repo: &git::GitRepo,
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
     base: &str,
     conflicted_files: &[String],
@@ -637,7 +642,7 @@ async fn resolve_conflicts_interactive(
 }
 
 async fn handle_nl_alias(
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
     description: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -683,7 +688,7 @@ async fn handle_nl_alias(
 
 async fn handle_smart_branch(
     _repo: &git::GitRepo,
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
     description: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -713,7 +718,7 @@ async fn handle_smart_branch(
 
 async fn handle_release_notes(
     repo: &git::GitRepo,
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
     from_ref: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -749,7 +754,7 @@ async fn handle_release_notes(
 
 async fn handle_explain(
     repo: &git::GitRepo,
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
     question: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -783,7 +788,7 @@ async fn handle_explain(
 
 async fn handle_stale_branches(
     repo: &git::GitRepo,
-    ai: &ai::GeminiClient,
+    ai: &ai::AiClient,
     tui: &tui::Tui,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let spinner = tui.start_thinking("Gathering branch information...");
@@ -861,3 +866,52 @@ async fn render_logo() {
     println!("{}", r#"    \ \_______\ \_______\ \_______\ \__\   \ \__\"#.blue().bold());
     println!("{}", r"     \|_______|\|_______|\|_______|\|__|    \|__|".magenta().bold());
 }
+
+async fn handle_models(
+    ai: &ai::AiClient,
+    tui: &tui::Tui,
+    config: &config::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let spinner = tui.start_thinking("Fetching free models from OpenRouter...");
+    let models = ai.list_free_models().await?;
+    tui.stop_spinner(spinner);
+
+    if models.is_empty() {
+        println!("\n{} No free models found. Check your API key or connection.", "✖".red());
+        return Ok(());
+    }
+
+    use dialoguer::{Select, theme::ColorfulTheme};
+    let theme = ColorfulTheme {
+        active_item_style: dialoguer::console::Style::new().green().bold(),
+        inactive_item_style: dialoguer::console::Style::new().dim(),
+        prompt_style: dialoguer::console::Style::new().cyan().bold(),
+        ..ColorfulTheme::default()
+    };
+
+    let mut items = Vec::new();
+    for m in &models {
+        let name = m.name.as_deref().unwrap_or("Unknown");
+        let context = m.context_length.map(|c| format!("{}k", c / 1024)).unwrap_or_else(|| "?".to_string());
+        items.push(format!("{} ({}) - {}", name, context.cyan(), m.id.clone().dim()));
+    }
+
+    let selection = Select::with_theme(&theme)
+        .with_prompt("Select a free AI model to use:")
+        .default(0)
+        .items(&items)
+        .interact_opt()?;
+
+    if let Some(index) = selection {
+        let selected = &models[index];
+        let mut new_config = config.clone();
+        new_config.model = selected.id.clone();
+        new_config.save()?;
+        
+        println!("\n{} Model updated to: {}", "✔".green().bold(), selected.id.clone().cyan());
+        println!("{}", "This change has been saved to your config.toml".dim());
+    }
+
+    Ok(())
+}
+

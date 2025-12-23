@@ -22,6 +22,7 @@ gogit is a command-line interface tool that integrates AI capabilities into your
 - **🌱 AI Smart Branch**: Create new branches with contextually relevant, AI-suggested names.
 - **🏷️ AI NL Alias**: Translate English requests into powerful Git commands/aliases.
 - **👥 Team Power-Ups**: Generate professional release notes, navigate the repository, and analyze stale branches.
+- **🎯 AI Model Browser**: Browse and select from 25+ free AI models via OpenRouter.
 
 ## Installation
 
@@ -29,7 +30,7 @@ gogit is a command-line interface tool that integrates AI capabilities into your
 
    - Rust toolchain (Cargo) installed.
    - Git installed and configured.
-   - An API key for Gemini. Set `GEMINI_API_KEY` in your environment or `.env` file.
+   - An API key for OpenRouter. Set `OPENROUTER_API_KEY` in your environment or `.env` file. Get one at [openrouter.ai](https://openrouter.ai).
 
 2. **Installation:**
    The recommended way to install `gogit` is using our installer script:
@@ -165,17 +166,13 @@ Manage your project's documentation, including updating the README or generating
 
 gogit doc
 
-### 7. Git Hook Management
+### 13. AI Model Management
 
-Install or uninstall Git hooks for automated workflows.
+Browse and selection from available free AI models.
 
-# Install the necessary Git hooks
+# List and choose a free model
 
-gogit hook install
-
-# Uninstall the Git hooks
-
-gogit hook uninstall
+gogit models
 
 ---
 
@@ -186,10 +183,35 @@ gogit hook uninstall
 Example `config.toml`:
 
 ```toml
-model = "gemini-2.5-flash-lite" # Or your preferred model
+model = "openai/gpt-4o-mini" # Or browse with 'gogit models'
+api_key = "sk-or-v1-..."     # Optional: use OPENROUTER_API_KEY env var instead
 commit_prompt = "Generate a concise commit message summarizing these changes."
 pr_prompt = "Create a detailed PR description highlighting the problem, solution, and any potential impacts."
 ```
+
+### 🎯 Free Models via OpenRouter
+
+`gogit` now supports OpenRouter, giving you access to dozens of models! Some popular free options:
+
+- `google/gemini-2.0-flash-exp:free`
+- `meta-llama/llama-3.1-70b-instruct:free`
+- `mistralai/mistral-7b-instruct:free`
+
+Use `gogit models` to see the full, up-to-date list.
+
+---
+
+**Git Hook Management:**
+
+Install or uninstall Git hooks for automated workflows.
+
+# Install the necessary Git hooks
+
+gogit hook install
+
+# Uninstall the Git hooks
+
+gogit hook uninstall
 
 ## 🗺️ Roadmap & Community
 
