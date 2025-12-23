@@ -168,7 +168,7 @@ impl AiClient {
             let resp = self.client
                 .post(url)
                 .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("HTTP-Referer", "https://github.com/yourusername/gogit")
+                .header("HTTP-Referer", "https://github.com/buka-pitch/gogit")
                 .header("X-Title", "gogit")
                 .json(&body)
                 .send()
