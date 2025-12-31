@@ -1,11 +1,11 @@
-use thiserror::Error;
+use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::time::Duration;
 use std::env;
+use std::time::Duration;
+use thiserror::Error;
 use tokio::time::sleep;
-use futures_util::StreamExt;
 
 /// Represents an error that can occur during AI operations.
 #[derive(Error, Debug)]
@@ -198,9 +198,17 @@ impl AiClient {
                 .or_else(|_| config_openrouter_key.ok_or(std::env::VarError::NotPresent)),
             AiProvider::Gemini => env::var("GEMINI_API_KEY")
                 .or_else(|_| config_gemini_key.ok_or(std::env::VarError::NotPresent)),
-        }.map_err(|_| {
-            let key_name = if provider == AiProvider::Gemini { "GEMINI_API_KEY" } else { "OPENROUTER_API_KEY" };
-            AiError::Stream(format!("No API key found. Set {} or add it to config.toml", key_name))
+        }
+        .map_err(|_| {
+            let key_name = if provider == AiProvider::Gemini {
+                "GEMINI_API_KEY"
+            } else {
+                "OPENROUTER_API_KEY"
+            };
+            AiError::Stream(format!(
+                "No API key found. Set {} or add it to config.toml",
+                key_name
+            ))
         })?;
 
         let api_key = raw_api_key.trim().to_string();
@@ -228,40 +236,52 @@ impl AiClient {
     pub async fn list_models(&self) -> Result<Vec<ModelInfo>, AiError> {
         if self.provider == AiProvider::Gemini {
             return Ok(vec![
-                
                 ModelInfo {
                     id: "gemini-3-flash-preview".to_string(),
                     name: Some("Gemini 3 Flash Preview (Native)".to_string()),
                     description: None,
                     context_length: Some(250000),
-                    pricing: Some(ModelPricing { prompt: "0".to_string(), completion: "0".to_string() }),
-                },
-                 ModelInfo {
-                    id: "gemini-2.0-flash-exp".to_string(),
-                    name: Some("Gemini 2.0 Flash Experimental".to_string()),
-                    description: None,
-                    context_length: Some(1000000),
-                    pricing: Some(ModelPricing { prompt: "0".to_string(), completion: "0".to_string() }),
-                },
-                ModelInfo {
-                    id: "gemini-2.5-flash-tts".to_string(),
-                    name: Some("Gemini 2.5 Flash TTS (Native)".to_string()),
-                    description: None,
-                    context_length: Some(10000),
-                    pricing: Some(ModelPricing { prompt: "0".to_string(), completion: "0".to_string() }),
+                    pricing: Some(ModelPricing {
+                        prompt: "0".to_string(),
+                        completion: "0".to_string(),
+                    }),
                 },
                 ModelInfo {
                     id: "gemma-3-27b".to_string(),
-                    name: Some("Gemma 3.27B (Native)".to_string()),
+                    name: Some("gemma-3-27b".to_string()),
                     description: None,
                     context_length: Some(15000),
-                    pricing: Some(ModelPricing { prompt: "0".to_string(), completion: "0".to_string() }),
+                    pricing: Some(ModelPricing {
+                        prompt: "0".to_string(),
+                        completion: "0".to_string(),
+                    }),
+                },
+                ModelInfo {
+                    id: "gemini-2.5-flash-lite".to_string(),
+                    name: Some("Gemini 2.5 Flash LITE (Native)".to_string()),
+                    description: None,
+                    context_length: Some(250000),
+                    pricing: Some(ModelPricing {
+                        prompt: "0".to_string(),
+                        completion: "0".to_string(),
+                    }),
+                },
+                ModelInfo {
+                    id: "gemini-2.5-flash-native-audio-dialog".to_string(),
+                    name: Some("gemini-2.5-flash-native-audio-dialog".to_string()),
+                    description: None,
+                    context_length: Some(15000),
+                    pricing: Some(ModelPricing {
+                        prompt: "0".to_string(),
+                        completion: "0".to_string(),
+                    }),
                 },
             ]);
         }
 
         let url = format!("{}/models", self.get_base_url());
-        let resp = self.client
+        let resp = self
+            .client
             .get(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("User-Agent", "gogit/0.1.0")
@@ -276,7 +296,10 @@ impl AiClient {
         Ok(models_response.data)
     }
 
-    fn map_messages_to_gemini(&self, messages: &[Message]) -> (Option<GeminiContent>, Vec<GeminiContent>) {
+    fn map_messages_to_gemini(
+        &self,
+        messages: &[Message],
+    ) -> (Option<GeminiContent>, Vec<GeminiContent>) {
         let mut system_instruction = None;
         let mut contents = Vec::new();
 
@@ -315,7 +338,9 @@ impl AiClient {
                     }
                     if let Some(tool_calls) = &msg.tool_calls {
                         for call in tool_calls {
-                            let thought_signature = call.extra_content.as_ref()
+                            let thought_signature = call
+                                .extra_content
+                                .as_ref()
                                 .and_then(|extra| extra.get("thought_signature"))
                                 .and_then(|s| s.as_str())
                                 .map(|s| s.to_string());
@@ -324,7 +349,8 @@ impl AiClient {
                                 text: None,
                                 function_call: Some(GeminiFunctionCall {
                                     name: call.function.name.clone(),
-                                    args: serde_json::from_str(&call.function.arguments).unwrap_or(json!({})),
+                                    args: serde_json::from_str(&call.function.arguments)
+                                        .unwrap_or(json!({})),
                                     thought_signature,
                                 }),
                                 function_response: None,
@@ -356,12 +382,17 @@ impl AiClient {
     }
 
     fn map_tools_to_gemini(tools: &[ToolDefinition]) -> GeminiTool {
-        let function_declarations = tools.iter().map(|t| GeminiFunctionDeclaration {
-            name: t.function.name.clone(),
-            description: t.function.description.clone(),
-            parameters: t.function.parameters.clone(),
-        }).collect();
-        GeminiTool { function_declarations }
+        let function_declarations = tools
+            .iter()
+            .map(|t| GeminiFunctionDeclaration {
+                name: t.function.name.clone(),
+                description: t.function.description.clone(),
+                parameters: t.function.parameters.clone(),
+            })
+            .collect();
+        GeminiTool {
+            function_declarations,
+        }
     }
 
     /// Lists only free models from OpenRouter (where pricing is 0).
@@ -432,10 +463,12 @@ impl AiClient {
                 request = request
                     .header("Authorization", format!("Bearer {}", api_key))
                     .header("User-Agent", "gogit/0.1.0")
-                    .header("HTTP-Referer", "https://github.com/buka-pitch/gogit")
+                    .header("HTTP-Referer", "gogit")
                     .header("X-Title", "gogit");
             }
-            
+            if provider == AiProvider::Gemini {
+                request = request.header("x-goog-api-key",format!("{}",api_key))
+            }
             let resp = request.json(&body).send().await?;
             if !resp.status().is_success() {
                 Err(AiError::Stream(format!("API Error {}: {}", resp.status(), resp.text().await.unwrap_or_default())))?;
@@ -446,13 +479,13 @@ impl AiClient {
                 while let Some(item) = stream.next().await {
                     let bytes = item?;
                     let chunk_str = String::from_utf8_lossy(&bytes);
-                    
+
                     for line in chunk_str.lines() {
                         if line.starts_with("data: ") {
                             let json_str = line.strip_prefix("data: ").unwrap();
-                            
+
                             if json_str == "[DONE]" { break; }
-                            
+
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
                                 if provider == AiProvider::Gemini {
                                     if let Some(delta) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
@@ -472,9 +505,18 @@ impl AiClient {
     }
 
     /// Generates a text completion from the AI API.
-    pub async fn generate_text(&self, prompt: &str, system_instruction: &str) -> Result<String, AiError> {
+    pub async fn generate_text(
+        &self,
+        prompt: &str,
+        system_instruction: &str,
+    ) -> Result<String, AiError> {
         if self.provider == AiProvider::Gemini {
-            let url = format!("{}/models/{}:generateContent?key={}", self.get_base_url(), self.model, self.api_key);
+            let url = format!(
+                "{}/models/{}:generateContent?key={}",
+                self.get_base_url(),
+                self.model,
+                self.api_key
+            );
             let body = json!({
                 "contents": [{
                     "role": "user",
@@ -487,10 +529,17 @@ impl AiClient {
 
             let resp = self.client.post(&url).json(&body).send().await?;
             if !resp.status().is_success() {
-                return Err(AiError::Stream(format!("Gemini API Error {}: {}", resp.status(), resp.text().await.unwrap_or_default())));
+                return Err(AiError::Stream(format!(
+                    "Gemini API Error {}: {}",
+                    resp.status(),
+                    resp.text().await.unwrap_or_default()
+                )));
             }
             let res: GeminiResponse = resp.json().await?;
-            return Ok(res.candidates[0].content.parts[0].text.clone().unwrap_or_default());
+            return Ok(res.candidates[0].content.parts[0]
+                .text
+                .clone()
+                .unwrap_or_default());
         }
 
         let url = format!("{}/chat/completions", self.get_base_url());
@@ -513,7 +562,8 @@ impl AiClient {
         let mut attempts = 0;
         let max_retries = 3;
         loop {
-            let resp = self.client
+            let resp = self
+                .client
                 .post(&url)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("User-Agent", "gogit/0.1.0")
@@ -522,7 +572,7 @@ impl AiClient {
                 .json(&body)
                 .send()
                 .await?;
-                
+
             if resp.status() == StatusCode::TOO_MANY_REQUESTS {
                 if attempts >= max_retries {
                     return Err(AiError::Stream("Rate limit exceeded".to_string()));
@@ -534,14 +584,17 @@ impl AiClient {
             }
 
             let json: serde_json::Value = resp.json().await?;
-            
+
             if let Some(text) = json["choices"][0]["message"]["content"].as_str() {
                 return Ok(text.to_string());
             } else if let Some(error) = json.get("error") {
                 let msg = error["message"].as_str().unwrap_or("Unknown API error");
                 return Err(AiError::Stream(format!("API Error: {}", msg)));
             } else {
-                return Err(AiError::Stream(format!("Unexpected JSON response: {}", json)));
+                return Err(AiError::Stream(format!(
+                    "Unexpected JSON response: {}",
+                    json
+                )));
             }
         }
     }
@@ -554,12 +607,19 @@ impl AiClient {
         let parts: Vec<&str> = diff.split("diff --git").collect();
         let mut summaries = Vec::new();
         for part in parts {
-            if part.trim().is_empty() { continue; }
+            if part.trim().is_empty() {
+                continue;
+            }
             let chunk = format!("diff --git{}", part);
-            let summary = self.generate_text(
-                &format!("Summarize the code changes in this git diff chunk:\n\n{}", chunk),
-                "You are a code summarizer. Output a concise summary of changes."
-            ).await?;
+            let summary = self
+                .generate_text(
+                    &format!(
+                        "Summarize the code changes in this git diff chunk:\n\n{}",
+                        chunk
+                    ),
+                    "You are a code summarizer. Output a concise summary of changes.",
+                )
+                .await?;
             summaries.push(summary);
         }
         Ok(summaries.join("\n\n"))
@@ -582,7 +642,11 @@ impl AiClient {
     }
 
     /// Resolves merge conflicts in a given file content.
-    pub async fn resolve_conflicts(&self, file_content: &str, file_name: &str) -> Result<String, AiError> {
+    pub async fn resolve_conflicts(
+        &self,
+        file_content: &str,
+        file_name: &str,
+    ) -> Result<String, AiError> {
         self.generate_text(
             &format!("Resolve the merge conflicts in the following file: {}\n\nContent:\n{}\n\nRules:\n- Maintain the intended logic from both sides where possible.\n- Remove all conflict markers (<<<<<<<, =======, >>>>>>>).\n- Output ONLY the resolved file content, no explanation, no backticks.", file_name, file_content),
             "You are a Senior Software Engineer. You resolve merge conflicts precisely, ensuring code integrity and following project conventions."
@@ -597,7 +661,12 @@ impl AiClient {
         ).await
     }
 
-    pub async fn answer_repo_question(&self, question: &str, files: &str, context: &str) -> Result<String, AiError> {
+    pub async fn answer_repo_question(
+        &self,
+        question: &str,
+        files: &str,
+        context: &str,
+    ) -> Result<String, AiError> {
         self.generate_text(
             &format!("Question about the repository:\n\"{}\"\n\nProject Structure:\n{}\n\nRelevant Context/File Contents:\n{}\n\nInstructions:\n- Answer the question accurately based on the provided files and structure.\n- Explain 'where things are' and 'how things work'.\n- Be concise and helpful for a new developer onboarding.", question, files, context),
             "You are a Senior Architect. You act as a technical guide for the codebase, helping developers navigate and understand the repository."
@@ -618,7 +687,12 @@ impl AiClient {
         tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, AiError> {
         if self.provider == AiProvider::Gemini {
-            let url = format!("{}/models/{}:generateContent?key={}", self.get_base_url(), self.model, self.api_key);
+            let url = format!(
+                "{}/models/{}:generateContent?key={}",
+                self.get_base_url(),
+                self.model,
+                self.api_key
+            );
             let (system_instruction, contents) = self.map_messages_to_gemini(&messages);
             let gemini_tools = tools.as_ref().map(|t| vec![Self::map_tools_to_gemini(t)]);
 
@@ -630,12 +704,19 @@ impl AiClient {
 
             let resp = self.client.post(&url).json(&body).send().await?;
             if !resp.status().is_success() {
-                return Err(AiError::Stream(format!("Gemini API Error {}: {}", resp.status(), resp.text().await.unwrap_or_default())));
+                return Err(AiError::Stream(format!(
+                    "Gemini API Error {}: {}",
+                    resp.status(),
+                    resp.text().await.unwrap_or_default()
+                )));
             }
 
             let gemini_resp: GeminiResponse = resp.json().await?;
-            let candidate = gemini_resp.candidates.get(0).ok_or_else(|| AiError::Stream("No candidates in Gemini response".to_string()))?;
-            
+            let candidate = gemini_resp
+                .candidates
+                .get(0)
+                .ok_or_else(|| AiError::Stream("No candidates in Gemini response".to_string()))?;
+
             let mut content = None;
             let mut tool_calls = Vec::new();
 
@@ -651,7 +732,10 @@ impl AiClient {
                             name: fc.name.clone(),
                             arguments: fc.args.to_string(),
                         },
-                        extra_content: fc.thought_signature.clone().map(|s| json!({ "thought_signature": s })),
+                        extra_content: fc
+                            .thought_signature
+                            .clone()
+                            .map(|s| json!({ "thought_signature": s })),
                     });
                 }
             }
@@ -659,7 +743,11 @@ impl AiClient {
             return Ok(Message {
                 role: Role::Assistant,
                 content,
-                tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                tool_calls: if tool_calls.is_empty() {
+                    None
+                } else {
+                    Some(tool_calls)
+                },
                 tool_call_id: None,
             });
         }
@@ -677,14 +765,19 @@ impl AiClient {
                 body["tools"] = json!(t);
                 body["tool_choice"] = json!("auto");
                 true
-            } else { false }
-        } else { false };
+            } else {
+                false
+            }
+        } else {
+            false
+        };
 
         let mut attempts = 0;
         let max_retries = 3;
 
         loop {
-            let resp = self.client
+            let resp = self
+                .client
                 .post(&url)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("User-Agent", "gogit/0.1.0")
@@ -696,21 +789,28 @@ impl AiClient {
 
             if resp.status() == StatusCode::TOO_MANY_REQUESTS {
                 if attempts >= max_retries {
-                    return Err(AiError::Stream("Rate limit exceeded after retries".to_string()));
+                    return Err(AiError::Stream(
+                        "Rate limit exceeded after retries".to_string(),
+                    ));
                 }
                 attempts += 1;
                 let wait_secs = 10 * (2u64.pow(attempts as u32 - 1));
-                eprintln!("\n[Rate Limit] Waiting {}s before retry ({}/{})...", wait_secs, attempts, max_retries);
+                eprintln!(
+                    "\n[Rate Limit] Waiting {}s before retry ({}/{})...",
+                    wait_secs, attempts, max_retries
+                );
                 sleep(Duration::from_secs(wait_secs)).await;
                 continue;
             }
 
             if resp.status() == StatusCode::NOT_FOUND && has_tools {
-                 let text = resp.text().await.unwrap_or_default();
-                 if text.contains("tool use") || text.contains("endpoint") {
-                    return Err(AiError::ToolIncompatibility("This model/provider does not support tool use.".to_string()));
-                 }
-                 return Err(AiError::Stream(format!("API Error 404: {}", text)));
+                let text = resp.text().await.unwrap_or_default();
+                if text.contains("tool use") || text.contains("endpoint") {
+                    return Err(AiError::ToolIncompatibility(
+                        "This model/provider does not support tool use.".to_string(),
+                    ));
+                }
+                return Err(AiError::Stream(format!("API Error 404: {}", text)));
             }
 
             if !resp.status().is_success() {
@@ -720,7 +820,7 @@ impl AiClient {
             }
 
             let json: serde_json::Value = resp.json().await?;
-            
+
             if let Some(choice) = json["choices"].get(0) {
                 let msg_val = &choice["message"];
                 let res_msg: Message = serde_json::from_value(msg_val.clone())?;
