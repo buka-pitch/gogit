@@ -71,9 +71,10 @@ impl Agent {
             self.history.push(response.clone());
 
             if let Some(tool_calls) = &response.tool_calls {
+                eprintln!("DEBUG: Got tool_calls = {:?}", tool_calls);
                 if tool_calls.is_empty() {
                     if let Some(content) = &response.content {
-                        println!("\n{} {}", "🤖".green(), content);
+                        self.tui.print_markdown(content);
                     }
                     break;
                 }
@@ -83,8 +84,12 @@ impl Agent {
                 }
                 // Continue loop to let AI process tool results
             } else {
+                eprintln!("DEBUG: Got response, content = {:?}", response.content);
                 if let Some(content) = &response.content {
-                    println!("\n{} {}", "🤖".green(), content);
+                    eprintln!("DEBUG: content is Some, calling print_markdown");
+                    self.tui.print_markdown(content);
+                } else {
+                    eprintln!("DEBUG: content is None!");
                 }
                 break;
             }

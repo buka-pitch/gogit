@@ -35,6 +35,7 @@ struct ModelsResponse {
 
 /// Information about an AI model
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct ModelInfo {
     pub id: String,
     pub name: Option<String>,
@@ -163,14 +164,71 @@ struct GeminiCandidate {
     content: GeminiContent,
 }
 
+// Ollama-specific structures
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct OllamaMessage {
+    role: String,
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OllamaToolCall>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct OllamaToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: OllamaToolFunction,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct OllamaToolFunction {
+    name: String,
+    arguments: serde_json::Value,
+}
+
+#[allow(dead_code)]
+#[derive(Serialize, Deserialize, Debug)]
+struct OllamaChatRequest {
+    model: String,
+    messages: Vec<OllamaMessage>,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OllamaChatResponse {
+    message: OllamaMessage,
+    #[allow(dead_code)]
+    done: bool,
+}
+
+#[derive(Deserialize, Debug)]
+struct OllamaModelsResponse {
+    models: Vec<OllamaModel>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OllamaModel {
+    name: String,
+    #[serde(rename = "model")]
+    #[allow(dead_code)]
+    model_name: String,
+    #[allow(dead_code)]
+    size: Option<u64>,
+    modified_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AiProvider {
     OpenRouter,
     Gemini,
+    Ollama,
 }
 
-/// A client for interacting with AI APIs (OpenRouter or Native Gemini).
+/// A client for interacting with AI APIs (OpenRouter or Native Gemini or Ollama).
 #[derive(Clone)]
 pub struct AiClient {
     client: Client,
@@ -178,6 +236,8 @@ pub struct AiClient {
     pub provider: AiProvider,
     /// The name of the model to use (e.g., "openai/gpt-4o-mini")
     pub model: String,
+    /// Custom base URL for Ollama (e.g., "http://localhost:11434")
+    ollama_base_url: Option<String>,
 }
 
 impl AiClient {
@@ -187,9 +247,11 @@ impl AiClient {
         provider_str: &str,
         config_openrouter_key: Option<String>,
         config_gemini_key: Option<String>,
+        config_ollama_url: Option<String>,
     ) -> Result<Self, AiError> {
         let provider = match provider_str.to_lowercase().as_str() {
             "gemini" => AiProvider::Gemini,
+            "ollama" => AiProvider::Ollama,
             _ => AiProvider::OpenRouter,
         };
 
@@ -198,6 +260,7 @@ impl AiClient {
                 .or_else(|_| config_openrouter_key.ok_or(std::env::VarError::NotPresent)),
             AiProvider::Gemini => env::var("GEMINI_API_KEY")
                 .or_else(|_| config_gemini_key.ok_or(std::env::VarError::NotPresent)),
+            AiProvider::Ollama => Ok(String::new()),
         }
         .map_err(|_| {
             let key_name = if provider == AiProvider::Gemini {
@@ -213,7 +276,7 @@ impl AiClient {
 
         let api_key = raw_api_key.trim().to_string();
 
-        if api_key.is_empty() {
+        if provider != AiProvider::Ollama && api_key.is_empty() {
             return Err(AiError::Stream("API Key is empty".to_string()));
         }
 
@@ -222,6 +285,7 @@ impl AiClient {
             api_key,
             provider,
             model,
+            ollama_base_url: config_ollama_url,
         })
     }
 
@@ -229,10 +293,51 @@ impl AiClient {
         match self.provider {
             AiProvider::OpenRouter => "https://openrouter.ai/api/v1".to_string(),
             AiProvider::Gemini => "https://generativelanguage.googleapis.com/v1beta".to_string(),
+            AiProvider::Ollama => self.ollama_base_url.clone().unwrap_or_else(|| "http://localhost:11434".to_string()),
         }
     }
 
-    /// Lists all available models from OpenRouter or Native Gemini list.
+    /// Check if Ollama is available and running
+    #[allow(dead_code)]
+    pub async fn is_ollama_available() -> bool {
+        let client = Client::new();
+        match client.get("http://localhost:11434/api/tags").send().await {
+            Ok(resp) => resp.status().is_success(),
+            Err(_) => false,
+        }
+    }
+
+    /// Auto-detect available Ollama models
+    pub async fn list_ollama_models(&self) -> Result<Vec<ModelInfo>, AiError> {
+        let base_url = self.get_base_url();
+        let url = format!("{}/api/tags", base_url);
+        
+        let resp = self.client.get(&url).send().await?;
+        
+        if !resp.status().is_success() {
+            return Err(AiError::Stream(format!("Ollama API Error: {}", resp.status())));
+        }
+        
+        let ollama_resp: OllamaModelsResponse = resp.json().await?;
+        
+        let models: Vec<ModelInfo> = ollama_resp.models
+            .into_iter()
+            .map(|m| ModelInfo {
+                id: m.name.clone(),
+                name: Some(m.name),
+                description: m.modified_at.map(|d| format!("Modified: {}", d)),
+                context_length: None,
+                pricing: Some(ModelPricing {
+                    prompt: "0".to_string(),
+                    completion: "0".to_string(),
+                }),
+            })
+            .collect();
+        
+        Ok(models)
+    }
+
+    /// Lists all available models from OpenRouter, Native Gemini, or Ollama.
     pub async fn list_models(&self) -> Result<Vec<ModelInfo>, AiError> {
         if self.provider == AiProvider::Gemini {
             return Ok(vec![
@@ -277,6 +382,10 @@ impl AiClient {
                     }),
                 },
             ]);
+        }
+
+        if self.provider == AiProvider::Ollama {
+            return self.list_ollama_models().await;
         }
 
         let url = format!("{}/models", self.get_base_url());
@@ -338,20 +447,14 @@ impl AiClient {
                     }
                     if let Some(tool_calls) = &msg.tool_calls {
                         for call in tool_calls {
-                            let thought_signature = call
-                                .extra_content
-                                .as_ref()
-                                .and_then(|extra| extra.get("thought_signature"))
-                                .and_then(|s| s.as_str())
-                                .map(|s| s.to_string());
-
+                            // thought_signature is NOT allowed in function_call - only in function_response
                             parts.push(GeminiPart {
                                 text: None,
                                 function_call: Some(GeminiFunctionCall {
                                     name: call.function.name.clone(),
                                     args: serde_json::from_str(&call.function.arguments)
                                         .unwrap_or(json!({})),
-                                    thought_signature,
+                                    thought_signature: None, // Not allowed in function_call
                                 }),
                                 function_response: None,
                             });
@@ -384,10 +487,15 @@ impl AiClient {
     fn map_tools_to_gemini(tools: &[ToolDefinition]) -> GeminiTool {
         let function_declarations = tools
             .iter()
-            .map(|t| GeminiFunctionDeclaration {
-                name: t.function.name.clone(),
-                description: t.function.description.clone(),
-                parameters: t.function.parameters.clone(),
+            .map(|t| {
+                let mut params = t.function.parameters.clone();
+                Self::sanitize_gemini_params(&mut params);
+                
+                GeminiFunctionDeclaration {
+                    name: t.function.name.clone(),
+                    description: t.function.description.clone(),
+                    parameters: params,
+                }
             })
             .collect();
         GeminiTool {
@@ -395,9 +503,28 @@ impl AiClient {
         }
     }
 
-    /// Lists only free models from OpenRouter (where pricing is 0).
+    fn sanitize_gemini_params(params: &mut serde_json::Value) {
+        if let Some(obj) = params.as_object_mut() {
+            obj.remove("additionalProperties");
+            obj.remove("patternProperties");
+            
+            if let Some(props) = obj.get_mut("properties") {
+                if let Some(props_obj) = props.as_object_mut() {
+                    for (_, v) in props_obj.iter_mut() {
+                        Self::sanitize_gemini_params(v);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Lists only free models from OpenRouter (where pricing is 0), or all models for Gemini/Ollama.
     pub async fn list_free_models(&self) -> Result<Vec<ModelInfo>, AiError> {
         if self.provider == AiProvider::Gemini {
+            return self.list_models().await;
+        }
+
+        if self.provider == AiProvider::Ollama {
             return self.list_models().await;
         }
 
@@ -443,6 +570,17 @@ impl AiClient {
                     }
                 });
                 (url, body)
+            } else if provider == AiProvider::Ollama {
+                let url = format!("{}/api/chat", base_url);
+                let body = json!({
+                    "model": model,
+                    "messages": [
+                        { "role": "system", "content": system_instruction },
+                        { "role": "user", "content": prompt }
+                    ],
+                    "stream": true
+                });
+                (url, body)
             } else {
                 let url = format!("{}/chat/completions", base_url);
                 let body = json!({
@@ -458,46 +596,74 @@ impl AiClient {
                 (url, body)
             };
 
-            let mut request = client.post(&url);
-            if provider == AiProvider::OpenRouter {
-                request = request
-                    .header("Authorization", format!("Bearer {}", api_key))
-                    .header("User-Agent", "gogit/0.1.0")
-                    .header("HTTP-Referer", "gogit")
-                    .header("X-Title", "gogit");
-            }
-            if provider == AiProvider::Gemini {
-                request = request.header("x-goog-api-key",format!("{}",api_key))
-            }
-            let resp = request.json(&body).send().await?;
-            if !resp.status().is_success() {
-                Err(AiError::Stream(format!("API Error {}: {}", resp.status(), resp.text().await.unwrap_or_default())))?;
-            } else {
-                let stream = resp.bytes_stream();
-                let mut stream = Box::pin(stream);
+            let mut attempts = 0;
+            let max_retries = 3;
 
-                while let Some(item) = stream.next().await {
-                    let bytes = item?;
-                    let chunk_str = String::from_utf8_lossy(&bytes);
+            // Retry loop for rate limiting
+            loop {
+                let mut request = client.post(&url);
+                if provider == AiProvider::OpenRouter {
+                    request = request
+                        .header("Authorization", format!("Bearer {}", api_key))
+                        .header("User-Agent", "gogit/0.1.0")
+                        .header("HTTP-Referer", "gogit")
+                        .header("X-Title", "gogit");
+                }
+                if provider == AiProvider::Gemini {
+                    request = request.header("x-goog-api-key",format!("{}",api_key));
+                }
+                
+                let result = request.json(&body).send().await;
+                
+                match result {
+                    Ok(response) => {
+                        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                            if attempts >= max_retries {
+                                Err(AiError::Stream("Rate limit exceeded after retries".to_string()))?;
+                            }
+                            attempts += 1;
+                            let wait_secs = 10 * (2u64.pow(attempts as u32 - 1));
+                            sleep(Duration::from_secs(wait_secs)).await;
+                            continue;
+                        }
+                        let resp = response;
+                        if !resp.status().is_success() {
+                            Err(AiError::Stream(format!("API Error {}: {}", resp.status(), resp.text().await.unwrap_or_default())))?;
+                        } else {
+                            let stream = resp.bytes_stream();
+                            let mut stream = Box::pin(stream);
 
-                    for line in chunk_str.lines() {
-                        if line.starts_with("data: ") {
-                            let json_str = line.strip_prefix("data: ").unwrap();
+                            while let Some(item) = stream.next().await {
+                                let bytes = item?;
+                                let chunk_str = String::from_utf8_lossy(&bytes);
 
-                            if json_str == "[DONE]" { break; }
+                                for line in chunk_str.lines() {
+                                    if let Some(json_str) = line.strip_prefix("data: ") {
+                                        if json_str == "[DONE]" { break; }
 
-                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
-                                if provider == AiProvider::Gemini {
-                                    if let Some(delta) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                                        yield delta.to_string();
-                                    }
-                                } else {
-                                    if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
-                                        yield delta.to_string();
+                                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                            if provider == AiProvider::Gemini {
+                                                if let Some(delta) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                                                    yield delta.to_string();
+                                                }
+                                            } else if provider == AiProvider::Ollama {
+                                                if let Some(delta) = json["message"]["content"].as_str() {
+                                                    yield delta.to_string();
+                                                }
+                                            } else {
+                                                if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                                                    yield delta.to_string();
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
+                        break;
+                    }
+                    Err(e) => {
+                        Err(AiError::Request(e))?;
                     }
                 }
             }
@@ -527,19 +693,59 @@ impl AiClient {
                 }
             });
 
+            let mut attempts = 0;
+            let max_retries = 3;
+            loop {
+                let resp = self.client.post(&url).json(&body).send().await?;
+                
+                if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                    if attempts >= max_retries {
+                        return Err(AiError::Stream("Rate limit exceeded".to_string()));
+                    }
+                    attempts += 1;
+                    let wait_secs = 10 * (2u64.pow(attempts as u32 - 1));
+                    sleep(Duration::from_secs(wait_secs)).await;
+                    continue;
+                }
+                
+                if !resp.status().is_success() {
+                    return Err(AiError::Stream(format!(
+                        "Gemini API Error {}: {}",
+                        resp.status(),
+                        resp.text().await.unwrap_or_default()
+                    )));
+                }
+                let res: GeminiResponse = resp.json().await?;
+                return Ok(res.candidates[0].content.parts[0]
+                    .text
+                    .clone()
+                    .unwrap_or_default());
+            }
+        }
+
+        if self.provider == AiProvider::Ollama {
+            let url = format!("{}/api/chat", self.get_base_url());
+            let body = json!({
+                "model": self.model,
+                "messages": [
+                    { "role": "system", "content": system_instruction },
+                    { "role": "user", "content": prompt }
+                ],
+                "stream": false
+            });
+
             let resp = self.client.post(&url).json(&body).send().await?;
+            
             if !resp.status().is_success() {
                 return Err(AiError::Stream(format!(
-                    "Gemini API Error {}: {}",
+                    "Ollama API Error {}: {}",
                     resp.status(),
                     resp.text().await.unwrap_or_default()
                 )));
             }
-            let res: GeminiResponse = resp.json().await?;
-            return Ok(res.candidates[0].content.parts[0]
-                .text
-                .clone()
-                .unwrap_or_default());
+            
+            let ollama_resp: OllamaChatResponse = resp.json().await?;
+            return Ok(ollama_resp.message.content.unwrap_or_default());
         }
 
         let url = format!("{}/chat/completions", self.get_base_url());
@@ -748,6 +954,55 @@ impl AiClient {
                 } else {
                     Some(tool_calls)
                 },
+                tool_call_id: None,
+            });
+        }
+
+        if self.provider == AiProvider::Ollama {
+            if tools.is_some() {
+                return Err(AiError::ToolIncompatibility(
+                    "Ollama models typically do not support tool calling. Please use a model with tool support (e.g., OpenAI, Gemini) or disable tools.".to_string(),
+                ));
+            }
+
+            let url = format!("{}/api/chat", self.get_base_url());
+            
+            let ollama_messages: Vec<OllamaMessage> = messages
+                .iter()
+                .map(|m| OllamaMessage {
+                    role: match m.role {
+                        Role::System => "system".to_string(),
+                        Role::User => "user".to_string(),
+                        Role::Assistant => "assistant".to_string(),
+                        Role::Tool => "tool".to_string(),
+                    },
+                    content: m.content.clone(),
+                    tool_calls: None,
+                })
+                .collect();
+
+            let body = json!({
+                "model": self.model,
+                "messages": ollama_messages,
+                "stream": false
+            });
+
+            let resp = self.client.post(&url).json(&body).send().await?;
+            
+            if !resp.status().is_success() {
+                return Err(AiError::Stream(format!(
+                    "Ollama API Error {}: {}",
+                    resp.status(),
+                    resp.text().await.unwrap_or_default()
+                )));
+            }
+
+            let ollama_resp: OllamaChatResponse = resp.json().await?;
+            
+            return Ok(Message {
+                role: Role::Assistant,
+                content: ollama_resp.message.content,
+                tool_calls: None,
                 tool_call_id: None,
             });
         }

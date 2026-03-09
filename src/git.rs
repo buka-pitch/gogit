@@ -58,10 +58,12 @@ impl GitRepo {
     /// or a `GitError` if any Git command or file operation fails. Returns an empty string if there are no staged changes.
     pub fn get_staged_diff(&self) -> Result<String, GitError> {
         let repo = &self.repo;
-        let index = repo.open_index().map_err(|e| GitError::Cmd(e.to_string()))?; // gix 0.66 uses open_index
+        let index = repo
+            .open_index()
+            .map_err(|e| GitError::Cmd(e.to_string()))?; // gix 0.66 uses open_index
 
         let mut staged_files = Vec::new();
-        
+
         // Iterate over index entries to find what matches our filter
         for entry in index.entries() {
             let path = std::str::from_utf8(entry.path(&index))?; // gix < 0.6x might be different, but 0.66 path() takes &State
@@ -82,7 +84,9 @@ impl GitRepo {
 
         let output = cmd.output()?;
         if !output.status.success() {
-            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
         }
 
         Ok(String::from_utf8(output.stdout)?)
@@ -102,21 +106,26 @@ impl GitRepo {
     /// `true` if the file should be ignored, `false` otherwise.
     fn is_ignored(&self, path: &str) -> bool {
         let p = Path::new(path);
-        
+
         // Filter lockfiles
         if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-            if name == "package-lock.json" 
-                || name == "yarn.lock" 
-                || name == "Cargo.lock" 
-                || name == "pnpm-lock.yaml" 
-                || name == "go.sum" {
+            if name == "package-lock.json"
+                || name == "yarn.lock"
+                || name == "Cargo.lock"
+                || name == "pnpm-lock.yaml"
+                || name == "go.sum"
+            {
                 return true;
             }
-            if name.ends_with(".map") || name.ends_with(".svg") || name.ends_with(".png") || name.ends_with(".jpg") {
-                 return true;
+            if name.ends_with(".map")
+                || name.ends_with(".svg")
+                || name.ends_with(".png")
+                || name.ends_with(".jpg")
+            {
+                return true;
             }
         }
-        
+
         // Can add more logic here (e.g. check for minified files)
         false
     }
@@ -136,11 +145,13 @@ impl GitRepo {
             .arg("-m")
             .arg(message)
             .output()?;
-        
+
         if !output.status.success() {
-             return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
-         }
-         Ok(())
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// Pushes staged changes to the remote repository.
@@ -151,30 +162,28 @@ impl GitRepo {
     ///
     /// A `Result` containing `()` if the push was successful, or a `GitError` if the push failed.
     pub fn push(&self) -> Result<(), GitError> {
-         let output = Command::new("git")
-            .arg("push")
-            .output()?;
-        
+        let output = Command::new("git").arg("push").output()?;
+
         if !output.status.success() {
-             let stderr = String::from_utf8_lossy(&output.stderr);
-             if stderr.contains("no upstream branch") {
-                 let current_branch = self.get_current_branch()?;
-                 println!("Tip: Setting upstream for branch '{}'...", current_branch);
-                 let status_retry = Command::new("git")
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("no upstream branch") {
+                let current_branch = self.get_current_branch()?;
+                println!("Tip: Setting upstream for branch '{}'...", current_branch);
+                let status_retry = Command::new("git")
                     .arg("push")
                     .arg("--set-upstream")
                     .arg("origin")
                     .arg(&current_branch)
                     .status()?;
-                
+
                 if !status_retry.success() {
-                     return Err(GitError::Cmd("Failed to push cleanup upstream".to_string()));
+                    return Err(GitError::Cmd("Failed to push cleanup upstream".to_string()));
                 }
-             } else {
-                 return Err(GitError::Cmd(stderr.to_string()));
-             }
-         }
-         Ok(())
+            } else {
+                return Err(GitError::Cmd(stderr.to_string()));
+            }
+        }
+        Ok(())
     }
 
     /// Retrieves commit history relevant for a Pull Request context.
@@ -203,7 +212,7 @@ impl GitRepo {
 
         // Use origin/main_branch instead of local branch to avoid stale context
         let base_ref = format!("origin/{}", main_branch);
-        
+
         let output = Command::new("git")
             .arg("log")
             .arg(format!("{}..HEAD", base_ref))
@@ -212,20 +221,22 @@ impl GitRepo {
             .output()?;
 
         if !output.status.success() {
-             // Fallback to local if origin doesn't exist/fails
-             let output_local = Command::new("git")
+            // Fallback to local if origin doesn't exist/fails
+            let output_local = Command::new("git")
                 .arg("log")
                 .arg(format!("{}..HEAD", main_branch))
                 .arg("--no-merges")
                 .arg("--pretty=format:Commit: %h%nMessage: %s%nBody: %b%n---")
                 .output()?;
 
-             if !output_local.status.success() {
-                 return Err(GitError::Cmd(String::from_utf8_lossy(&output_local.stderr).to_string()));
-             }
-             return Ok(String::from_utf8(output_local.stdout)?);
-         }
-         Ok(String::from_utf8(output.stdout)?)
+            if !output_local.status.success() {
+                return Err(GitError::Cmd(
+                    String::from_utf8_lossy(&output_local.stderr).to_string(),
+                ));
+            }
+            return Ok(String::from_utf8(output_local.stdout)?);
+        }
+        Ok(String::from_utf8(output.stdout)?)
     }
 
     /// Retrieves a list of files that have unstaged changes.
@@ -242,15 +253,18 @@ impl GitRepo {
             .output()?;
 
         if !output.status.success() {
-            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
         }
 
         let output_str = String::from_utf8(output.stdout)?;
-        let files: Vec<String> = output_str.lines()
+        let files: Vec<String> = output_str
+            .lines()
             .filter(|l| !l.trim().is_empty())
             .map(|s| s.to_string())
             .collect();
-            
+
         Ok(files)
     }
 
@@ -265,15 +279,19 @@ impl GitRepo {
     /// A `Result` containing `()` if the files were staged successfully, or a `GitError` if the operation failed.
     /// If the `files` slice is empty, this function returns `Ok(())` immediately without executing any commands.
     pub fn stage_files(&self, files: &[String]) -> Result<(), GitError> {
-        if files.is_empty() { return Ok(()); }
-        
+        if files.is_empty() {
+            return Ok(());
+        }
+
         let mut cmd = Command::new("git");
         cmd.arg("add");
         cmd.args(files);
-        
+
         let output = cmd.output()?;
         if !output.status.success() {
-            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
         }
         Ok(())
     }
@@ -290,11 +308,13 @@ impl GitRepo {
             .arg("--abbrev-ref")
             .arg("HEAD")
             .output()?;
-            
+
         if !output.status.success() {
-             return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
-         }
-         Ok(String::from_utf8(output.stdout)?.trim().to_string())
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+        Ok(String::from_utf8(output.stdout)?.trim().to_string())
     }
 
     /// Retrieves the owner and repository name from the 'origin' remote URL.
@@ -311,28 +331,38 @@ impl GitRepo {
             .arg("get-url")
             .arg("origin")
             .output()?;
-            
+
         if !output.status.success() {
-             return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
-         }
-         
-         let url = String::from_utf8(output.stdout)?.trim().to_string();
-         // Parse URL: 
-         // https://github.com/owner/repo.git or git@github.com:owner/repo.git
-         
-         let parts: Vec<&str> = if url.starts_with("git@") {
-             url.trim_start_matches("git@").split(':').nth(1).unwrap_or("").split('/').collect()
-         } else {
-             url.trim_start_matches("https://").split('/').skip(1).collect()
-         };
-         
-         if parts.len() >= 2 {
-             let owner = parts[0];
-             let repo = parts[1].trim_end_matches(".git");
-             Ok((owner.to_string(), repo.to_string()))
-         } else {
-             Err(GitError::Cmd("Could not parse remote url".to_string()))
-         }
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+
+        let url = String::from_utf8(output.stdout)?.trim().to_string();
+        // Parse URL:
+        // https://github.com/owner/repo.git or git@github.com:owner/repo.git
+
+        let parts: Vec<&str> = if url.starts_with("git@") {
+            url.trim_start_matches("git@")
+                .split(':')
+                .nth(1)
+                .unwrap_or("")
+                .split('/')
+                .collect()
+        } else {
+            url.trim_start_matches("https://")
+                .split('/')
+                .skip(1)
+                .collect()
+        };
+
+        if parts.len() >= 2 {
+            let owner = parts[0];
+            let repo = parts[1].trim_end_matches(".git");
+            Ok((owner.to_string(), repo.to_string()))
+        } else {
+            Err(GitError::Cmd("Could not parse remote url".to_string()))
+        }
     }
 
     /// Checks for merge conflicts between two references.
@@ -351,22 +381,26 @@ impl GitRepo {
     pub fn check_merge_conflicts(&self, base: &str, head: &str) -> Result<MergeResult, GitError> {
         let mut cmd = Command::new("git");
         cmd.arg("merge-tree")
-           .arg("--write-tree")
-           .arg(base)
-           .arg(head);
+            .arg("--write-tree")
+            .arg(base)
+            .arg(head);
 
         let output = cmd.output()?;
-        
+
         let has_conflicts = match output.status.code() {
             Some(0) => false,
             Some(1) => true,
-            _ => return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string())),
+            _ => {
+                return Err(GitError::Cmd(
+                    String::from_utf8_lossy(&output.stderr).to_string(),
+                ))
+            }
         };
 
         let mut conflicted_files = Vec::new();
         if has_conflicts {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            
+
             for line in stdout.lines() {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 4 {
@@ -426,17 +460,18 @@ impl GitRepo {
     pub fn get_commits_since_ref(&self, reference: Option<&str>) -> Result<String, GitError> {
         let mut cmd = Command::new("git");
         cmd.arg("log");
-        
+
         if let Some(r) = reference {
             cmd.arg(format!("{}..HEAD", r));
         }
 
-        cmd.arg("--pretty=format:- %s (%h)")
-           .arg("--no-merges");
+        cmd.arg("--pretty=format:- %s (%h)").arg("--no-merges");
 
         let output = cmd.output()?;
         if !output.status.success() {
-            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
         }
 
         Ok(String::from_utf8(output.stdout)?)
@@ -451,12 +486,12 @@ impl GitRepo {
     /// A `Result` containing a `String` with a list of tracked file paths, one per line, if successful.
     /// Returns a `GitError` if the Git command fails.
     pub fn get_repo_tree(&self) -> Result<String, GitError> {
-        let output = Command::new("git")
-            .arg("ls-files")
-            .output()?;
+        let output = Command::new("git").arg("ls-files").output()?;
 
         if !output.status.success() {
-            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
         }
 
         Ok(String::from_utf8(output.stdout)?)
@@ -476,11 +511,17 @@ impl GitRepo {
             .output()?;
 
         if !output.status.success() {
-            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
         }
 
         let output_str = String::from_utf8(output.stdout)?;
-        Ok(output_str.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        Ok(output_str
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect())
     }
 
     /// Gets a list of branches that have been merged into a specified base branch.
@@ -493,6 +534,7 @@ impl GitRepo {
     ///
     /// A `Result` containing a `Vec<String>` of merged branch names (excluding the base branch itself) if successful,
     /// or a `GitError` if the Git command fails.
+    #[allow(dead_code)]
     pub fn get_merged_branches(&self, base: &str) -> Result<Vec<String>, GitError> {
         let output = Command::new("git")
             .arg("branch")
@@ -502,11 +544,14 @@ impl GitRepo {
             .output()?;
 
         if !output.status.success() {
-            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
         }
 
         let output_str = String::from_utf8(output.stdout)?;
-        Ok(output_str.lines()
+        Ok(output_str
+            .lines()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty() && s != base)
             .collect())
@@ -535,7 +580,9 @@ impl GitRepo {
             .output()?;
 
         if !output.status.success() {
-            return Err(GitError::Cmd(String::from_utf8_lossy(&output.stderr).to_string()));
+            return Err(GitError::Cmd(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
         }
 
         Ok(String::from_utf8(output.stdout)?)

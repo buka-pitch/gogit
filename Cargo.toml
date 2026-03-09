@@ -27,6 +27,8 @@ walkdir = "2.5"
 tempfile = "3.10"
 urlencoding = "2.1"
 colored = "2.1"
+pulldown-cmark = "0.10"
+syntect = "5.2"
 
 [profile.release]
 opt-level = "z"     # Optimize for size

@@ -3,6 +3,7 @@ use std::env;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum GitHubError {
     #[error("GitHub API error: {0}")]
     Octocrab(#[from] octocrab::Error),
