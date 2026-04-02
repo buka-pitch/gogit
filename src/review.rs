@@ -1,4 +1,4 @@
-use crate::ai::GeminiClient;
+use crate::ai::AiClient;
 use crate::git::GitRepo;
 use crate::tui::Tui;
 use crossterm::style::Stylize;
@@ -8,7 +8,7 @@ pub struct Reviewer;
 impl Reviewer {
     pub async fn run(
         tui: &Tui,
-        ai: &GeminiClient,
+        ai: &AiClient,
         repo: &GitRepo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let diff = repo.get_staged_diff()?;

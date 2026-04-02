@@ -1,4 +1,4 @@
-use crate::ai::GeminiClient;
+use crate::ai::AiClient;
 use crate::tui::Tui;
 use std::fs;
 use std::path::Path;
@@ -9,7 +9,7 @@ pub struct Refactorer;
 impl Refactorer {
     pub async fn run(
         tui: &Tui,
-        ai: &GeminiClient,
+        ai: &AiClient,
         file_path: &str,
         instruction: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
